@@ -18,12 +18,14 @@ import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
 
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -42,13 +44,9 @@ public class EmotionActivity extends AppCompatActivity {
     private DatabaseReference watchRef;
     private ValueEventListener watchListener;
 
+    private String targetUserId;
     private int currentHeartRate = 72;
     private boolean isAnalyzing = true;
-
-    // Predictive Thresholds for Emotional Insights
-    private static final int HR_CALM_MAX = 75;
-    private static final int HR_HAPPY_MAX = 90;
-    private static final int HR_EXCITED_MAX = 110;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,16 +63,19 @@ public class EmotionActivity extends AppCompatActivity {
 
         initViews();
         animateHeart();
-        connectToLiveWatchData();
+        
+        // SK PINJI: Determine if we should monitor a linked student or self
+        determineTargetUser();
+
         setupClickListeners();
 
-        // Perform analysis after 6 seconds of "listening" to the watch
+        // Start analysis after a delay to simulate "Predictive Processing"
         new Handler().postDelayed(() -> {
             if (isAnalyzing) {
                 isAnalyzing = false;
                 analyzeEmotionFromPulse();
             }
-        }, 6000);
+        }, 5000);
     }
 
     private void initViews() {
@@ -90,12 +91,49 @@ public class EmotionActivity extends AppCompatActivity {
         pulseRing2 = findViewById(R.id.pulseRing2);
         pulseRing3 = findViewById(R.id.pulseRing3);
 
-        tvStatus.setText("Syncing with Smartwatch...");
+        tvStatus.setText("Connecting to Cloud...");
         cardResult.setVisibility(View.GONE);
     }
 
-    private void connectToLiveWatchData() {
-        String uid = mAuth.getUid();
+    private void determineTargetUser() {
+        String myUid = mAuth.getUid();
+        
+        db.collection("users").document(myUid).get()
+            .addOnSuccessListener(doc -> {
+                if (doc.exists()) {
+                    String role = doc.getString("role");
+                    if ("Guardian".equalsIgnoreCase(role)) {
+                        // Find the linked student
+                        findLinkedStudent(myUid);
+                    } else {
+                        // User is a student, monitor self
+                        targetUserId = myUid;
+                        connectToLiveWatchData(targetUserId);
+                    }
+                }
+            });
+    }
+
+    private void findLinkedStudent(String guardianUid) {
+        db.collection("student_guardian_links")
+            .whereEqualTo("guardian_uid", guardianUid)
+            .limit(1)
+            .get()
+            .addOnSuccessListener(snapshots -> {
+                if (!snapshots.isEmpty()) {
+                    for (QueryDocumentSnapshot doc : snapshots) {
+                        targetUserId = doc.getString("student_uid");
+                        tvStatus.setText("Syncing with Student Watch...");
+                        connectToLiveWatchData(targetUserId);
+                    }
+                } else {
+                    tvStatus.setText("No Student Linked");
+                    Toast.makeText(this, "Please link a student first", Toast.LENGTH_LONG).show();
+                }
+            });
+    }
+
+    private void connectToLiveWatchData(String uid) {
         watchRef = FirebaseDatabase.getInstance().getReference("users").child(uid).child("vitals");
 
         watchListener = new ValueEventListener() {
@@ -106,14 +144,11 @@ public class EmotionActivity extends AppCompatActivity {
                     if (hr != null) {
                         currentHeartRate = hr;
                         tvHeartRate.setText(currentHeartRate + " BPM");
+                        tvStatus.setText("Receiving Live Vitals...");
                     }
                 }
             }
-
-            @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-                Log.e(TAG, "Watch Sync Failed: " + error.getMessage());
-            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
         };
         watchRef.addValueEventListener(watchListener);
     }
@@ -125,36 +160,34 @@ public class EmotionActivity extends AppCompatActivity {
         int colorRes;
         int bgGradient;
 
-        if (currentHeartRate <= HR_CALM_MAX) {
+        // Predictive Thresholds
+        if (currentHeartRate <= 75) {
             emotion = "Peaceful & Calm";
-            analysis = "Real-time vitals show a steady, relaxed pulse. The patient appears tranquil.";
+            analysis = "Vitals indicate a stable, relaxed state. The student appears tranquil.";
             emotionIcon = R.drawable.ic_calm;
             colorRes = R.color.calm_blue;
             bgGradient = R.drawable.gradient_calm;
-        } else if (currentHeartRate <= HR_HAPPY_MAX) {
+        } else if (currentHeartRate <= 100) {
             emotion = "Content & Happy";
-            analysis = "A gentle elevation in pulse suggests a positive emotional state.";
+            analysis = "A gentle elevation suggests a positive emotional state or engagement.";
             emotionIcon = R.drawable.ic_happy;
             colorRes = R.color.happy_yellow;
             bgGradient = R.drawable.gradient_happy;
-        } else if (currentHeartRate <= HR_EXCITED_MAX) {
-            emotion = "Excited / Energetic";
-            analysis = "High heart rate detected. This could indicate excitement or physical activity.";
+        } else if (currentHeartRate <= 120) {
+            emotion = "Excited / Active";
+            analysis = "Elevated heart rate detected. High energy or excitement observed.";
             emotionIcon = R.drawable.ic_excited;
             colorRes = R.color.excited_orange;
             bgGradient = R.drawable.gradient_excited;
         } else {
             emotion = "Distressed / Anxious";
-            analysis = "Predictive Alert: Sustained high pulse indicates distress or anxiety. Caregiver notification recommended.";
+            analysis = "PREDICTIVE ALERT: Sustained high pulse indicates distress. Immediate attention recommended.";
             emotionIcon = R.drawable.ic_stressed;
             colorRes = R.color.stressed_red;
             bgGradient = R.drawable.gradient_stressed;
         }
 
-        // UI Updates
         displayResult(emotion, analysis, emotionIcon, colorRes, bgGradient);
-        
-        // BACKEND: Save to Firestore History
         saveInsightToCloud(emotion, currentHeartRate);
     }
 
@@ -173,16 +206,16 @@ public class EmotionActivity extends AppCompatActivity {
     }
 
     private void saveInsightToCloud(String emotion, int hr) {
+        if (targetUserId == null) return;
         Map<String, Object> insight = new HashMap<>();
         insight.put("emotion", emotion);
         insight.put("heartRate", hr);
         insight.put("timestamp", System.currentTimeMillis());
-        insight.put("dateLabel", java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
+        db.collection("users").document(targetUserId).collection("behavioral_insights").add(insight);
+    }
 
-        db.collection("users").document(mAuth.getUid())
-                .collection("behavioral_insights").add(insight)
-                .addOnSuccessListener(doc -> Log.d(TAG, "Insight saved to cloud"))
-                .addOnFailureListener(e -> Toast.makeText(this, "Cloud Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+    private void setupClickListeners() {
+        btnOkay.setOnClickListener(v -> finish());
     }
 
     private void animateHeart() {
@@ -209,10 +242,6 @@ public class EmotionActivity extends AppCompatActivity {
         sX.setDuration(1500); sY.setDuration(1500); a.setDuration(1500);
         sX.setStartDelay(delay); sY.setStartDelay(delay); a.setStartDelay(delay);
         sX.start(); sY.start(); a.start();
-    }
-
-    private void setupClickListeners() {
-        btnOkay.setOnClickListener(v -> finish());
     }
 
     @Override

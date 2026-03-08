@@ -24,6 +24,7 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -39,19 +40,23 @@ public class LocationTrackingService extends Service {
 
     private FusedLocationProviderClient fusedLocationClient;
     private DatabaseReference databaseRef;
+    private FirebaseFirestore db;
     private LocationCallback locationCallback;
     private String userId;
 
-    // SPARK PLAN OPTIMIZATION:
-    // Update every 30 seconds instead of every 2 seconds.
-    private static final long UPDATE_INTERVAL = 30000; // 30 seconds
+    private static final long UPDATE_INTERVAL = 30000; // 30 seconds for live
     private static final long MIN_UPDATE_INTERVAL = 20000; // 20 seconds
+    
+    // FORTIFICATION: Track timing for historical logging
+    private long lastHistoryLogTime = 0;
+    private static final long HISTORY_LOG_INTERVAL = 600000; // Log to Firestore every 10 minutes (Breadcrumbs)
 
     @Override
     public void onCreate() {
         super.onCreate();
         FirebaseDatabase database = FirebaseDatabase.getInstance();
         databaseRef = database.getReference("locations");
+        db = FirebaseFirestore.getInstance();
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
     }
 
@@ -99,17 +104,36 @@ public class LocationTrackingService extends Service {
     }
 
     private void updateLocationToFirebase(Location location) {
+        long now = System.currentTimeMillis();
+        String dateTime = getCurrentDateTime();
+
+        // 1. LIVE DATA (Realtime DB - for immediate tracking)
         Map<String, Object> locationData = new HashMap<>();
         locationData.put("latitude", location.getLatitude());
         locationData.put("longitude", location.getLongitude());
         locationData.put("accuracy", location.getAccuracy());
-        locationData.put("timestamp", System.currentTimeMillis());
-        locationData.put("dateTime", getCurrentDateTime());
+        locationData.put("timestamp", now);
+        locationData.put("dateTime", dateTime);
 
-        // Update to Firebase Realtime Database
-        databaseRef.child(userId).setValue(locationData)
-                .addOnSuccessListener(aVoid -> Log.d(TAG, "Location updated successfully (Spark Optimized)"))
-                .addOnFailureListener(e -> Log.e(TAG, "Failed to update location", e));
+        databaseRef.child(userId).setValue(locationData);
+
+        // 2. HISTORICAL DATA (Firestore - 90-day breadcrumbs)
+        if (now - lastHistoryLogTime >= HISTORY_LOG_INTERVAL) {
+            logLocationToHistory(location, now, dateTime);
+            lastHistoryLogTime = now;
+        }
+    }
+
+    private void logLocationToHistory(Location location, long timestamp, String dateTime) {
+        Map<String, Object> historyData = new HashMap<>();
+        historyData.put("latitude", location.getLatitude());
+        historyData.put("longitude", location.getLongitude());
+        historyData.put("timestamp", timestamp);
+        historyData.put("dateTime", dateTime);
+
+        db.collection("users").document(userId)
+                .collection("location_history").add(historyData)
+                .addOnSuccessListener(documentReference -> Log.d(TAG, "Location breadcrumb saved to history"));
     }
 
     private String getCurrentDateTime() {

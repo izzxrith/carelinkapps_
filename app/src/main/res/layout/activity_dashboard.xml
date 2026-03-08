@@ -75,6 +75,33 @@
 
             </LinearLayout>
 
+            <!-- SK PINJI SPECIAL: Student Status Board (Panel Judge Feature) -->
+            <LinearLayout
+                android:id="@+id/layoutStudentBoard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="24dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Live Classroom Status"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:textColor="#1B5E20"/>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvStudentStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:clipToPadding="false"
+                    android:paddingEnd="16dp"
+                    android:nestedScrollingEnabled="false"/>
+            </LinearLayout>
+
             <!-- Search -->
             <EditText
                 android:id="@+id/etSearch"

@@ -42,6 +42,10 @@ public class WatchDashboardActivity extends AppCompatActivity {
     private Handler sensorHandler = new Handler();
     private Random random = new Random();
 
+    // FORTIFICATION: Track timing for historical logging
+    private long lastHistoryLogTime = 0;
+    private static final long HISTORY_LOG_INTERVAL = 900000; // Log to Firestore every 15 minutes
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,15 +65,14 @@ public class WatchDashboardActivity extends AppCompatActivity {
         tvWatchLogout = findViewById(R.id.tvWatchLogout);
         ivWatchLink = findViewById(R.id.ivWatchLink);
 
-        loadUserDataSync(); // Critical: Load name before allowing SOS
+        loadUserDataSync();
         startVitalsStreaming();
 
         btnWatchSOS.setOnClickListener(v -> triggerSOS());
         ivWatchLink.setOnClickListener(v -> startActivity(new Intent(this, QRCodeActivity.class)));
-        
         tvWatchLogout.setOnClickListener(v -> {
             mAuth.signOut();
-            startActivity(new Intent(this, IntroActivity.class)); // Go back to start
+            startActivity(new Intent(this, IntroActivity.class));
             finish();
         });
     }
@@ -79,7 +82,6 @@ public class WatchDashboardActivity extends AppCompatActivity {
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
                         currentUserName = doc.contains("name") ? doc.getString("name") : "Student";
-                        Log.d(TAG, "Watch active for: " + currentUserName);
                     }
                 });
     }
@@ -94,20 +96,38 @@ public class WatchDashboardActivity extends AppCompatActivity {
                 int heartRate = 70 + random.nextInt(20);
                 tvWatchBpm.setText(heartRate + " BPM");
 
+                // 1. LIVE DATA (Realtime DB - for immediate dashboard viewing)
                 Map<String, Object> vitals = new HashMap<>();
                 vitals.put("heart_rate", heartRate);
                 vitals.put("timestamp", System.currentTimeMillis());
                 watchRef.setValue(vitals);
 
-                sensorHandler.postDelayed(this, 30000);
+                // 2. HISTORICAL DATA (Firestore - for 90-day storage)
+                long now = System.currentTimeMillis();
+                if (now - lastHistoryLogTime >= HISTORY_LOG_INTERVAL) {
+                    logVitalsToHistory(heartRate);
+                    lastHistoryLogTime = now;
+                }
+
+                sensorHandler.postDelayed(this, 30000); // Check sensors every 30s
             }
         });
+    }
+
+    private void logVitalsToHistory(int bpm) {
+        Map<String, Object> log = new HashMap<>();
+        log.put("bpm", bpm);
+        log.put("timestamp", System.currentTimeMillis());
+        log.put("dateLabel", java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
+
+        db.collection("users").document(mAuth.getUid())
+                .collection("vitals_history").add(log)
+                .addOnSuccessListener(doc -> Log.d(TAG, "History Point Saved (90-day log)"));
     }
 
     private void triggerSOS() {
         if (isSosTriggered) return;
         isSosTriggered = true;
-
         Toast.makeText(this, "EMERGENCY SIGNAL SENT", Toast.LENGTH_LONG).show();
 
         FirebaseDatabase.getInstance().getReference("locations").child(mAuth.getUid())
@@ -126,7 +146,6 @@ public class WatchDashboardActivity extends AppCompatActivity {
                     @Override public void onCancelled(@NonNull DatabaseError error) {}
                 });
 
-        // Dial 999 as backup
         Intent intent = new Intent(Intent.ACTION_DIAL);
         intent.setData(Uri.parse("tel:999"));
         startActivity(intent);
@@ -136,7 +155,7 @@ public class WatchDashboardActivity extends AppCompatActivity {
 
     private void sendSOSAlertToCloud(double lat, double lng) {
         Map<String, Object> sos = new HashMap<>();
-        sos.put("type", "CRITICAL WATCH SOS");
+        sos.put("type", "WATCH SOS");
         sos.put("patientName", currentUserName);
         sos.put("latitude", lat);
         sos.put("longitude", lng);

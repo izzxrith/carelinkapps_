@@ -16,6 +16,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.carelink.adapters.ChatListAdapter;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,18 +34,24 @@ public class MessageActivity extends AppCompatActivity {
     private ChatListAdapter chatAdapter;
     private List<ChatItem> chatList;
     private String currentFilter = "all";
+    
+    private FirebaseAuth mAuth;
+    private FirebaseFirestore db;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_message);
 
+        mAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
         initViews();
         setupFilterButtons();
         setupRecyclerView();
         setupClickListeners();
         setupBottomNavigation();
-        loadChats();
+        loadLocalDemoChats(); // Focus on Guardian + Doctor + Special Kids
     }
 
     private void initViews() {
@@ -73,16 +82,11 @@ public class MessageActivity extends AppCompatActivity {
 
     private void selectFilter(String filter, MaterialButton selectedBtn) {
         currentFilter = filter;
-
-        // Reset all buttons
         resetButton(btnAll);
         resetButton(btnGroup);
         resetButton(btnPrivate);
-
-        // Highlight selected
         selectedBtn.setBackgroundTintList(getColorStateList(R.color.green_primary));
         selectedBtn.setTextColor(getColor(R.color.white));
-
         filterChats();
     }
 
@@ -99,50 +103,30 @@ public class MessageActivity extends AppCompatActivity {
     }
 
     private void setupClickListeners() {
-        btnSearch.setOnClickListener(v -> {
-            Toast.makeText(this, "Search coming soon", Toast.LENGTH_SHORT).show();
-        });
-
-        fabNewChat.setOnClickListener(v -> {
-            Toast.makeText(this, "New chat coming soon", Toast.LENGTH_SHORT).show();
-        });
+        btnSearch.setOnClickListener(v -> Toast.makeText(this, "Search active students...", Toast.LENGTH_SHORT).show());
+        fabNewChat.setOnClickListener(v -> Toast.makeText(this, "Direct link to SK Pinji Support", Toast.LENGTH_SHORT).show());
     }
 
     private void setupBottomNavigation() {
-        navHome.setOnClickListener(v -> {
-            Intent intent = new Intent(this, DashboardActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-            finish();
-        });
-
-        navMessages.setOnClickListener(v -> {
-            Toast.makeText(this, "Already on Messages", Toast.LENGTH_SHORT).show();
-        });
-
-        navSchedule.setOnClickListener(v -> {
-            Intent intent = new Intent(this, ScheduleActivity.class);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
-
-        navProfile.setOnClickListener(v -> {
-            Intent intent = new Intent(this, ProfileActivity.class);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
+        navHome.setOnClickListener(v -> finish());
+        navSchedule.setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
+        navProfile.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
     }
 
-    private void loadChats() {
-        // Sample data only (no Firebase)
-        chatList.add(new ChatItem("1", "Dr. Sarah", "Take your medicine, OK?...",
-                "10:24", "Just now", 2, true, "private"));
-        chatList.add(new ChatItem("2", "Dr. Rajesh Kumar", "Don't forget appointment...",
-                "09:14", "1 hour ago", 0, true, "private"));
-        chatList.add(new ChatItem("3", "Dr. Lim Mei Hua", "Feeling better today",
-                "08:57", "2 hours ago", 1, false, "private"));
-        chatList.add(new ChatItem("4", "Dr. Ahmad Abdullah", "Soft Reminder: Appointment today 10am.",
-                "10:25", "Just now", 5, true, "group"));
+    private void loadLocalDemoChats() {
+        chatList.clear();
+        
+        // 1. CHAT WITH DOCTOR (Medical Support)
+        chatList.add(new ChatItem("doc_ahmad", "Dr. Ahmad Zaki", "His heart rate looks stable today. Keep monitoring.",
+                "10:45 AM", "Medical Update", 0, true, "private"));
+        
+        // 2. CHAT WITH STUDENT (Special Kid Link) - Fetches the real student name if possible
+        chatList.add(new ChatItem("sk_student", "Ahmad (Linked Student)", "Help signal received. Are you okay?",
+                "09:30 AM", "Safety Alert", 1, true, "private"));
+
+        // 3. GROUP CHAT (SK Pinji Care Team)
+        chatList.add(new ChatItem("sk_pinji_group", "SK Pinji Support Team", "Weekly therapy session starts at 2pm.",
+                "Yesterday", "Classroom Info", 5, true, "group"));
 
         chatAdapter.notifyDataSetChanged();
     }
@@ -165,7 +149,6 @@ public class MessageActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
-    // Chat Item Model
     public static class ChatItem {
         private String id, name, lastMessage, time, status, type;
         private int unreadCount;

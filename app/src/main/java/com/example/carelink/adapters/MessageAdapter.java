@@ -18,10 +18,10 @@ public class MessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
     private static final int TYPE_SENT = 1;
     private static final int TYPE_RECEIVED = 2;
 
-    private List<ChatRoomActivity.Message> messages;
+    private List<ChatRoomActivity.ChatMessage> messages;
     private String currentUserId;
 
-    public MessageAdapter(List<ChatRoomActivity.Message> messages, String currentUserId) {
+    public MessageAdapter(List<ChatRoomActivity.ChatMessage> messages, String currentUserId) {
         this.messages = messages;
         this.currentUserId = currentUserId;
     }
@@ -50,7 +50,7 @@ public class MessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
 
     @Override
     public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
-        ChatRoomActivity.Message message = messages.get(position);
+        ChatRoomActivity.ChatMessage message = messages.get(position);
 
         if (holder.getItemViewType() == TYPE_SENT) {
             ((SentViewHolder) holder).bind(message);
@@ -73,7 +73,7 @@ public class MessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             tvTime = itemView.findViewById(R.id.tvTime);
         }
 
-        void bind(ChatRoomActivity.Message message) {
+        void bind(ChatRoomActivity.ChatMessage message) {
             tvMessage.setText(message.getText());
             tvTime.setText(message.getTimestamp());
         }
@@ -89,8 +89,11 @@ public class MessageAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder
             tvTime = itemView.findViewById(R.id.tvTime);
         }
 
-        void bind(ChatRoomActivity.Message message) {
-            tvSenderName.setText(message.getSenderName());
+        void bind(ChatRoomActivity.ChatMessage message) {
+            // senderName is not available in the new ChatMessage class in ChatRoomActivity
+            // We can default it to "Teacher" or "Guardian" for now, or just leave it blank if senderName field is not used.
+            // Since ChatRoomActivity doesn't have senderName, let's just use a placeholder.
+            tvSenderName.setText("User");
             tvMessage.setText(message.getText());
             tvTime.setText(message.getTimestamp());
         }
