@@ -1,0 +1,6 @@
+<resources>
+    <style name="DashedLine">
+        <item name="android:background">@drawable/dashed_line</item>
+        <item name="android:layerType">software</item>
+    </style>
+</resources>

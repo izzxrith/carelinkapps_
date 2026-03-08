@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Edit button on toolbar -->
+    <item
+        android:id="@+id/action_edit"
+        android:title="Edit"
+        android:icon="@drawable/ic_edit"
+        app:showAsAction="ifRoom"/>
+
+    <!-- Switch account inside 3 dot -->
+    <item
+        android:id="@+id/action_switch_account"
+        android:title="Switch Account"
+        android:icon="@drawable/ic_more_vert"
+        app:showAsAction="never"/>
+
+    <!-- Logout inside 3 dot -->
+    <item
+        android:id="@+id/action_logout"
+        android:title="Logout"
+        android:icon="@drawable/ic_logout"
+        app:showAsAction="never"/>
+
+</menu>
