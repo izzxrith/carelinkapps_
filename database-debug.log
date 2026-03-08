@@ -1,0 +1,18 @@
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by io.netty.util.internal.NativeLibraryUtil in an unnamed module (file:/home/ayet/.cache/firebase/emulators/firebase-database-emulator-v4.11.2.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::objectFieldOffset has been called by akka.util.Unsafe (file:/home/ayet/.cache/firebase/emulators/firebase-database-emulator-v4.11.2.jar)
+WARNING: Please consider reporting this to the maintainers of class akka.util.Unsafe
+WARNING: sun.misc.Unsafe::objectFieldOffset will be removed in a future release
+15:38:53.155 [NamespaceSystem-akka.actor.default-dispatcher-5] INFO akka.event.slf4j.Slf4jLogger - Slf4jLogger started
+15:38:53.266 [main] INFO com.firebase.server.forge.App$ - Listening at 127.0.0.1:9000
+15:38:58.514 [NamespaceSystem-akka.actor.default-dispatcher-5] INFO com.firebase.core.namespace.NamespaceActor - carelink-22c6a-default-rtdb successfully activated FBKV (SurveyIdle(0)) wait: 92ms, init: 0ms
+15:38:58.566 [NamespaceSystem-blocking-namespace-operation-dispatcher-7] INFO com.firebase.core.namespace.StateManager - Namespace carelink-22c6a-default-rtdb status Active to Active
+15:40:30.537 [FirebaseWorkerPool-1-3] WARN com.firebase.core.persistence.backend.dummy.EmulatorMetadataPersistence - Multiple projectIds are not recommended in single project mode. Requested 
+namespace carelink-22c6a, but the emulator is configured for carelink-22c6a-default-rtdb. To 
+opt-out of single project mode add/set the singleProjectMode: false property in 
+the firebase.json emulators config. 
+15:40:30.566 [NamespaceSystem-akka.actor.default-dispatcher-11] INFO com.firebase.core.namespace.NamespaceActor - carelink-22c6a successfully activated FBKV (SurveyIdle(0)) wait: 8ms, init: 0ms
