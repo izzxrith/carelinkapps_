@@ -3,6 +3,7 @@ package com.example.carelink;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -12,15 +13,21 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FieldValue;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.journeyapps.barcodescanner.DecoratedBarcodeView;
 import com.journeyapps.barcodescanner.BarcodeCallback;
 import com.journeyapps.barcodescanner.BarcodeResult;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class ScanQrFragment extends Fragment {
 
+    private static final String TAG = "ScanQrFragment";
     private DecoratedBarcodeView barcodeView;
     private FirebaseFirestore db;
+    private FirebaseAuth mAuth;
     private static final int CAMERA_PERMISSION_REQUEST = 100;
 
     public ScanQrFragment() {}
@@ -31,6 +38,7 @@ public class ScanQrFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_scan_qr, container, false);
 
         db = FirebaseFirestore.getInstance();
+        mAuth = FirebaseAuth.getInstance();
         barcodeView = view.findViewById(R.id.barcodeScanner);
 
         if (checkCameraPermission()) {
@@ -68,56 +76,43 @@ public class ScanQrFragment extends Fragment {
     }
 
     private void processScannedCode(String qrData) {
-        try {
-            if (qrData.startsWith("CARELINK://")) {
-                String[] parts = qrData.replace("CARELINK://", "").split(":");
-                if (parts.length == 2) {
-                    String linkId = parts[0];
-                    String userId = parts[1];
-
-                    linkDevice(linkId, userId);
-                }
-            } else {
-                Toast.makeText(getContext(), "Invalid CareLink QR Code", Toast.LENGTH_SHORT).show();
-                resumeScanning();
-            }
-        } catch (Exception e) {
-            Toast.makeText(getContext(), "Error processing QR", Toast.LENGTH_SHORT).show();
+        // Expected format: CARELINK_UID:[student_uid]
+        if (qrData.startsWith("CARELINK_UID:")) {
+            String studentUid = qrData.replace("CARELINK_UID:", "").trim();
+            linkStudentToGuardian(studentUid);
+        } else {
+            Toast.makeText(getContext(), "Invalid CareLink ID", Toast.LENGTH_SHORT).show();
+            resumeScanning();
         }
     }
 
-    private void linkDevice(String linkId, String targetUserId) {
-        String currentUserId = FirebaseAuth.getInstance().getCurrentUser().getUid();
+    private void linkStudentToGuardian(String studentUid) {
+        String guardianUid = mAuth.getCurrentUser().getUid();
+        
+        // Use a global 'links' collection to connect Students and Guardians
+        Map<String, Object> linkData = new HashMap<>();
+        linkData.put("guardian_uid", guardianUid);
+        linkData.put("student_uid", studentUid);
+        linkData.put("status", "linked");
+        linkData.put("linkedAt", FieldValue.serverTimestamp());
 
-        db.collection("device_links").document(linkId)
-                .update(
-                        "status", "linked",
-                        "linkedUserId", currentUserId,
-                        "linkedAt", System.currentTimeMillis(),
-                        "deviceName", "CareLink Watch"
-                )
+        String linkId = guardianUid + "_" + studentUid;
+
+        db.collection("student_guardian_links").document(linkId)
+                .set(linkData)
                 .addOnSuccessListener(aVoid -> {
-                    Toast.makeText(getContext(), "Watch linked successfully!", Toast.LENGTH_LONG).show();
-                    addDeviceToUser(linkId);
+                    Toast.makeText(getContext(), "Student linked to your dashboard!", Toast.LENGTH_LONG).show();
+                    // Also update the student's record to know who their guardian is
+                    db.collection("users").document(studentUid)
+                            .update("guardian_id", guardianUid);
+                    
+                    resumeScanning();
                 })
                 .addOnFailureListener(e -> {
-                    Toast.makeText(getContext(), "Link failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    Log.e(TAG, "Link Error: " + e.getMessage());
+                    Toast.makeText(getContext(), "Linking failed. Try again.", Toast.LENGTH_SHORT).show();
                     resumeScanning();
                 });
-    }
-
-    private void addDeviceToUser(String linkId) {
-        String userId = FirebaseAuth.getInstance().getCurrentUser().getUid();
-
-        java.util.Map<String, Object> device = new java.util.HashMap<>();
-        device.put("linkId", linkId);
-        device.put("type", "watch");
-        device.put("linkedAt", System.currentTimeMillis());
-        device.put("status", "active");
-
-        db.collection("users").document(userId)
-                .collection("devices")
-                .add(device);
     }
 
     private void pauseScanning() {
@@ -138,18 +133,5 @@ public class ScanQrFragment extends Fragment {
     public void onPause() {
         super.onPause();
         if (barcodeView != null) barcodeView.pause();
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_REQUEST) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startScanning();
-            } else {
-                Toast.makeText(getContext(), "Camera permission required", Toast.LENGTH_SHORT).show();
-            }
-        }
     }
 }

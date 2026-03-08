@@ -3,27 +3,34 @@ package com.example.carelink;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Intent;
-import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
+import android.util.Log;
 import android.view.View;
-import android.view.animation.Animation;
-import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.core.content.ContextCompat;
 
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.database.DataSnapshot;
+import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
 
-import java.util.Random;
+import java.util.HashMap;
+import java.util.Map;
 
 public class EmotionActivity extends AppCompatActivity {
 
+    private static final String TAG = "EmotionActivity";
     private TextView tvStatus, tvHeartRate, tvEmotionResult, tvAnalysis;
     private ImageView ivHeart, ivEmotionIcon;
     private Button btnOkay;
@@ -32,18 +39,16 @@ public class EmotionActivity extends AppCompatActivity {
 
     private FirebaseAuth mAuth;
     private FirebaseFirestore db;
-    private Handler handler = new Handler();
-    private Random random = new Random();
-    private int currentHeartRate = 72;
-    private boolean isMonitoring = true;
+    private DatabaseReference watchRef;
+    private ValueEventListener watchListener;
 
-    private static final int HR_CALM_MIN = 60;
+    private int currentHeartRate = 72;
+    private boolean isAnalyzing = true;
+
+    // Predictive Thresholds for Emotional Insights
     private static final int HR_CALM_MAX = 75;
-    private static final int HR_HAPPY_MIN = 76;
     private static final int HR_HAPPY_MAX = 90;
-    private static final int HR_EXCITED_MIN = 91;
     private static final int HR_EXCITED_MAX = 110;
-    private static final int HR_STRESSED_MIN = 111;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,10 +58,23 @@ public class EmotionActivity extends AppCompatActivity {
         mAuth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
+        if (mAuth.getCurrentUser() == null) {
+            finish();
+            return;
+        }
+
         initViews();
-        startHeartRateSimulation();
         animateHeart();
+        connectToLiveWatchData();
         setupClickListeners();
+
+        // Perform analysis after 6 seconds of "listening" to the watch
+        new Handler().postDelayed(() -> {
+            if (isAnalyzing) {
+                isAnalyzing = false;
+                analyzeEmotionFromPulse();
+            }
+        }, 6000);
     }
 
     private void initViews() {
@@ -72,209 +90,136 @@ public class EmotionActivity extends AppCompatActivity {
         pulseRing2 = findViewById(R.id.pulseRing2);
         pulseRing3 = findViewById(R.id.pulseRing3);
 
-        cardResult.setAlpha(0f);
+        tvStatus.setText("Syncing with Smartwatch...");
         cardResult.setVisibility(View.GONE);
     }
 
-    private void startHeartRateSimulation() {
-        // Simulate real-time heart rate changes
-        handler.postDelayed(new Runnable() {
+    private void connectToLiveWatchData() {
+        String uid = mAuth.getUid();
+        watchRef = FirebaseDatabase.getInstance().getReference("users").child(uid).child("vitals");
+
+        watchListener = new ValueEventListener() {
             @Override
-            public void run() {
-                if (!isMonitoring) return;
-
-                int change = random.nextInt(7) - 3; // -3 to +3
-                currentHeartRate += change;
-
-                if (currentHeartRate < 60) currentHeartRate = 60;
-                if (currentHeartRate > 130) currentHeartRate = 130;
-
-                tvHeartRate.setText(currentHeartRate + " BPM");
-
-                adjustPulseSpeed();
-
-                handler.postDelayed(this, 1000);
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (snapshot.exists() && isAnalyzing) {
+                    Integer hr = snapshot.child("heart_rate").getValue(Integer.class);
+                    if (hr != null) {
+                        currentHeartRate = hr;
+                        tvHeartRate.setText(currentHeartRate + " BPM");
+                    }
+                }
             }
-        }, 1000);
 
-        // Analyze emotion after 5 seconds
-        handler.postDelayed(() -> {
-            isMonitoring = false;
-            analyzeEmotion();
-        }, 5000);
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Log.e(TAG, "Watch Sync Failed: " + error.getMessage());
+            }
+        };
+        watchRef.addValueEventListener(watchListener);
     }
 
-    private void adjustPulseSpeed() {
-        float scale = 60f / currentHeartRate;
-    }
-
-    private void animateHeart() {
-        // Continuous heartbeat animation
-        ObjectAnimator scaleX = ObjectAnimator.ofFloat(ivHeart, "scaleX", 1f, 1.2f, 1f);
-        ObjectAnimator scaleY = ObjectAnimator.ofFloat(ivHeart, "scaleY", 1f, 1.2f, 1f);
-
-        scaleX.setRepeatCount(ValueAnimator.INFINITE);
-        scaleY.setRepeatCount(ValueAnimator.INFINITE);
-
-        // Duration based on heart rate (faster = shorter duration)
-        long duration = (long) (60000f / currentHeartRate);
-        scaleX.setDuration(duration);
-        scaleY.setDuration(duration);
-
-        scaleX.start();
-        scaleY.start();
-
-        animatePulseRing(pulseRing1, 0);
-        animatePulseRing(pulseRing2, 400);
-        animatePulseRing(pulseRing3, 800);
-    }
-
-    private void animatePulseRing(View ring, long delay) {
-        ring.setAlpha(0.6f);
-        ring.setScaleX(1f);
-        ring.setScaleY(1f);
-
-        ObjectAnimator scaleX = ObjectAnimator.ofFloat(ring, "scaleX", 1f, 2.5f);
-        ObjectAnimator scaleY = ObjectAnimator.ofFloat(ring, "scaleY", 1f, 2.5f);
-        ObjectAnimator alpha = ObjectAnimator.ofFloat(ring, "alpha", 0.6f, 0f);
-
-        scaleX.setDuration(1500);
-        scaleY.setDuration(1500);
-        alpha.setDuration(1500);
-
-        scaleX.setRepeatCount(ValueAnimator.INFINITE);
-        scaleY.setRepeatCount(ValueAnimator.INFINITE);
-        alpha.setRepeatCount(ValueAnimator.INFINITE);
-
-        scaleX.setStartDelay(delay);
-        scaleY.setStartDelay(delay);
-        alpha.setStartDelay(delay);
-
-        scaleX.start();
-        scaleY.start();
-        alpha.start();
-    }
-
-    private void analyzeEmotion() {
+    private void analyzeEmotionFromPulse() {
         String emotion;
         String analysis;
         int emotionIcon;
         int colorRes;
         int bgGradient;
 
-        if (currentHeartRate >= HR_CALM_MIN && currentHeartRate <= HR_CALM_MAX) {
+        if (currentHeartRate <= HR_CALM_MAX) {
             emotion = "Peaceful & Calm";
-            analysis = "Your heart rate indicates a relaxed state. You seem tranquil and at ease. Perfect time for meditation or light reading!";
+            analysis = "Real-time vitals show a steady, relaxed pulse. The patient appears tranquil.";
             emotionIcon = R.drawable.ic_calm;
             colorRes = R.color.calm_blue;
             bgGradient = R.drawable.gradient_calm;
-        } else if (currentHeartRate >= HR_HAPPY_MIN && currentHeartRate <= HR_HAPPY_MAX) {
-            emotion = "Happy & Content";
-            analysis = "Your gentle elevated heart rate suggests you're feeling positive and joyful. You're in a great mood! Keep spreading those good vibes!";
+        } else if (currentHeartRate <= HR_HAPPY_MAX) {
+            emotion = "Content & Happy";
+            analysis = "A gentle elevation in pulse suggests a positive emotional state.";
             emotionIcon = R.drawable.ic_happy;
             colorRes = R.color.happy_yellow;
             bgGradient = R.drawable.gradient_happy;
-        } else if (currentHeartRate >= HR_EXCITED_MIN && currentHeartRate <= HR_EXCITED_MAX) {
-            emotion = "Excited & Energetic";
-            analysis = "Your elevated heart rate shows you're energized! Whether it's excitement or anticipation, you're ready to take on the world!";
+        } else if (currentHeartRate <= HR_EXCITED_MAX) {
+            emotion = "Excited / Energetic";
+            analysis = "High heart rate detected. This could indicate excitement or physical activity.";
             emotionIcon = R.drawable.ic_excited;
             colorRes = R.color.excited_orange;
             bgGradient = R.drawable.gradient_excited;
-        } else if (currentHeartRate >= HR_STRESSED_MIN) {
-            emotion = "Stressed / Anxious";
-            analysis = "Your heart rate is quite elevated. You might be feeling stressed or anxious. Try taking deep breaths - inhale for 4 counts, hold for 4, exhale for 4.";
+        } else {
+            emotion = "Distressed / Anxious";
+            analysis = "Predictive Alert: Sustained high pulse indicates distress or anxiety. Caregiver notification recommended.";
             emotionIcon = R.drawable.ic_stressed;
             colorRes = R.color.stressed_red;
             bgGradient = R.drawable.gradient_stressed;
-        } else {
-            emotion = "Relaxed / Sleepy";
-            analysis = "Your heart rate is quite low. You might be very relaxed or feeling drowsy. Great for a power nap!";
-            emotionIcon = R.drawable.ic_sleepy;
-            colorRes = R.color.sleepy_purple;
-            bgGradient = R.drawable.gradient_sleepy;
         }
 
-        tvEmotionResult.setText(emotion);
-        tvAnalysis.setText(analysis);
-        ivEmotionIcon.setImageResource(emotionIcon);
-
-        int color = ContextCompat.getColor(this, colorRes);
-        tvEmotionResult.setTextColor(color);
-        btnOkay.setBackgroundColor(color);
-
-        cardResult.setBackgroundResource(bgGradient);
-
-        cardResult.setVisibility(View.VISIBLE);
-        cardResult.animate()
-                .alpha(1f)
-                .setDuration(800)
-                .start();
-
-        tvStatus.animate().alpha(0f).setDuration(500).start();
-
-        ivHeart.animate()
-                .scaleX(1f)
-                .scaleY(1f)
-                .setDuration(500)
-                .start();
-
-        saveEmotionData(emotion, currentHeartRate);
+        // UI Updates
+        displayResult(emotion, analysis, emotionIcon, colorRes, bgGradient);
+        
+        // BACKEND: Save to Firestore History
+        saveInsightToCloud(emotion, currentHeartRate);
     }
 
-    private void saveEmotionData(String emotion, int heartRate) {
-        if (mAuth.getCurrentUser() != null) {
-            String userId = mAuth.getCurrentUser().getUid();
+    private void displayResult(String emotion, String analysis, int icon, int color, int bg) {
+        tvEmotionResult.setText(emotion);
+        tvAnalysis.setText(analysis);
+        ivEmotionIcon.setImageResource(icon);
+        tvEmotionResult.setTextColor(ContextCompat.getColor(this, color));
+        btnOkay.setBackgroundColor(ContextCompat.getColor(this, color));
+        cardResult.setBackgroundResource(bg);
 
-            EmotionRecord record = new EmotionRecord(
-                    System.currentTimeMillis(),
-                    emotion,
-                    heartRate,
-                    java.text.DateFormat.getDateTimeInstance().format(new java.util.Date())
-            );
+        cardResult.setVisibility(View.VISIBLE);
+        cardResult.setAlpha(0f);
+        cardResult.animate().alpha(1f).setDuration(500).start();
+        tvStatus.setVisibility(View.GONE);
+    }
 
-            db.collection("users")
-                    .document(userId)
-                    .collection("emotion_history")
-                    .add(record);
-        }
+    private void saveInsightToCloud(String emotion, int hr) {
+        Map<String, Object> insight = new HashMap<>();
+        insight.put("emotion", emotion);
+        insight.put("heartRate", hr);
+        insight.put("timestamp", System.currentTimeMillis());
+        insight.put("dateLabel", java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
+
+        db.collection("users").document(mAuth.getUid())
+                .collection("behavioral_insights").add(insight)
+                .addOnSuccessListener(doc -> Log.d(TAG, "Insight saved to cloud"))
+                .addOnFailureListener(e -> Toast.makeText(this, "Cloud Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+    }
+
+    private void animateHeart() {
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(ivHeart, "scaleX", 1f, 1.2f, 1f);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(ivHeart, "scaleY", 1f, 1.2f, 1f);
+        scaleX.setRepeatCount(ValueAnimator.INFINITE);
+        scaleY.setRepeatCount(ValueAnimator.INFINITE);
+        scaleX.setDuration(800);
+        scaleY.setDuration(800);
+        scaleX.start();
+        scaleY.start();
+
+        animatePulseRing(pulseRing1, 0);
+        animatePulseRing(pulseRing2, 400);
+    }
+
+    private void animatePulseRing(View ring, long delay) {
+        ObjectAnimator sX = ObjectAnimator.ofFloat(ring, "scaleX", 1f, 2.5f);
+        ObjectAnimator sY = ObjectAnimator.ofFloat(ring, "scaleY", 1f, 2.5f);
+        ObjectAnimator a = ObjectAnimator.ofFloat(ring, "alpha", 0.6f, 0f);
+        sX.setRepeatCount(ValueAnimator.INFINITE);
+        sY.setRepeatCount(ValueAnimator.INFINITE);
+        a.setRepeatCount(ValueAnimator.INFINITE);
+        sX.setDuration(1500); sY.setDuration(1500); a.setDuration(1500);
+        sX.setStartDelay(delay); sY.setStartDelay(delay); a.setStartDelay(delay);
+        sX.start(); sY.start(); a.start();
     }
 
     private void setupClickListeners() {
-        btnOkay.setOnClickListener(v -> {
-            cardResult.animate()
-                    .alpha(0f)
-                    .setDuration(300)
-                    .withEndAction(() -> {
-                        Intent intent = new Intent(EmotionActivity.this, DashboardActivity.class);
-                        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                        startActivity(intent);
-                        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-                        finish();
-                    })
-                    .start();
-        });
+        btnOkay.setOnClickListener(v -> finish());
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        isMonitoring = false;
-        handler.removeCallbacksAndMessages(null);
-    }
-
-    public static class EmotionRecord {
-        public long timestamp;
-        public String emotion;
-        public int heartRate;
-        public String dateTime;
-
-        public EmotionRecord() {}
-
-        public EmotionRecord(long timestamp, String emotion, int heartRate, String dateTime) {
-            this.timestamp = timestamp;
-            this.emotion = emotion;
-            this.heartRate = heartRate;
-            this.dateTime = dateTime;
+        if (watchRef != null && watchListener != null) {
+            watchRef.removeEventListener(watchListener);
         }
     }
 }

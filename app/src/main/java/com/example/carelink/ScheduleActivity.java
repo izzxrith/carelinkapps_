@@ -2,6 +2,7 @@ package com.example.carelink;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -11,11 +12,15 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import com.example.carelink.adapters.AppointmentAdapter;
 import com.example.carelink.models.Appointment;
-import com.example.carelink.utils.DataManager;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+import java.util.ArrayList;
 import java.util.List;
 
 public class ScheduleActivity extends AppCompatActivity {
 
+    private static final String TAG = "ScheduleActivity";
     private TextView tvScheduleTitle, tvEmptyState;
     private CardView cardUpcoming, cardCompleted, cardCanceled;
     private TextView tvUpcomingCount, tvCompletedCount, tvCanceledCount;
@@ -25,22 +30,28 @@ public class ScheduleActivity extends AppCompatActivity {
 
     private LinearLayout navHome, navMessages, navSchedule, navProfile;
 
+    private FirebaseFirestore db;
+    private FirebaseAuth mAuth;
+    private List<Appointment> allAppointments = new ArrayList<>();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_schedule);
 
+        db = FirebaseFirestore.getInstance();
+        mAuth = FirebaseAuth.getInstance();
+
         initViews();
         setupCategoryTabs();
         setupBottomNavigation();
-        loadAppointments();
+        fetchAppointmentsFromFirestore();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        updateCounts();
-        loadAppointments();
+        fetchAppointmentsFromFirestore();
     }
 
     private void initViews() {
@@ -70,19 +81,19 @@ public class ScheduleActivity extends AppCompatActivity {
         cardUpcoming.setOnClickListener(v -> {
             currentFilter = "upcoming";
             highlightCard(cardUpcoming);
-            loadAppointments();
+            filterAndDisplay();
         });
 
         cardCompleted.setOnClickListener(v -> {
             currentFilter = "completed";
             highlightCard(cardCompleted);
-            loadAppointments();
+            filterAndDisplay();
         });
 
         cardCanceled.setOnClickListener(v -> {
             currentFilter = "canceled";
             highlightCard(cardCanceled);
-            loadAppointments();
+            filterAndDisplay();
         });
 
         highlightCard(cardUpcoming);
@@ -121,12 +132,59 @@ public class ScheduleActivity extends AppCompatActivity {
         selected.setAlpha(1.0f);
     }
 
+    private void fetchAppointmentsFromFirestore() {
+        String userId = mAuth.getUid();
+        if (userId == null) return;
+
+        db.collection("users").document(userId).collection("my_appointments")
+                .get()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        allAppointments.clear();
+                        for (QueryDocumentSnapshot document : task.getResult()) {
+                            try {
+                                String id = document.getString("id");
+                                String patientName = document.getString("patientName");
+                                String phoneNumber = document.getString("phoneNumber");
+                                String clinicName = document.getString("clinicName");
+                                String clinicAddress = document.getString("clinicAddress");
+                                Double clinicLat = document.getDouble("clinicLat");
+                                Double clinicLng = document.getDouble("clinicLng");
+                                String date = document.getString("date");
+                                String time = document.getString("time");
+                                String doctorName = document.getString("doctorName");
+                                String specialty = document.getString("specialty");
+                                Double price = document.getDouble("price");
+                                String status = document.getString("status");
+                                String paymentMethod = document.getString("paymentMethod");
+                                String bookingTime = document.getString("bookingTime");
+
+                                Appointment appointment = new Appointment(
+                                        id, patientName, phoneNumber, clinicName, clinicAddress,
+                                        clinicLat != null ? clinicLat : 0,
+                                        clinicLng != null ? clinicLng : 0,
+                                        date, time, doctorName, specialty,
+                                        price != null ? price : 0,
+                                        status, paymentMethod, bookingTime
+                                );
+                                allAppointments.add(appointment);
+                            } catch (Exception e) {
+                                Log.e(TAG, "Error parsing appointment: " + e.getMessage());
+                            }
+                        }
+                        updateCounts();
+                        filterAndDisplay();
+                    } else {
+                        Toast.makeText(this, "Error loading appointments", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
     private void updateCounts() {
-        List<Appointment> all = DataManager.getInstance().getAppointments();
         int upcoming = 0, completed = 0, canceled = 0;
 
-        for (Appointment apt : all) {
-            switch (apt.getStatus()) {
+        for (Appointment apt : allAppointments) {
+            switch (apt.getStatus().toLowerCase()) {
                 case "upcoming": upcoming++; break;
                 case "completed": completed++; break;
                 case "canceled": canceled++; break;
@@ -138,9 +196,13 @@ public class ScheduleActivity extends AppCompatActivity {
         tvCanceledCount.setText(String.valueOf(canceled));
     }
 
-    private void loadAppointments() {
-        List<Appointment> filtered = DataManager.getInstance()
-                .getAppointmentsByStatus(currentFilter);
+    private void filterAndDisplay() {
+        List<Appointment> filtered = new ArrayList<>();
+        for (Appointment apt : allAppointments) {
+            if (apt.getStatus().equalsIgnoreCase(currentFilter)) {
+                filtered.add(apt);
+            }
+        }
 
         if (filtered.isEmpty()) {
             tvEmptyState.setVisibility(android.view.View.VISIBLE);
@@ -156,7 +218,7 @@ public class ScheduleActivity extends AppCompatActivity {
     }
 
     private void onAppointmentClick(Appointment appointment) {
-        if (appointment.getStatus().equals("upcoming")) {
+        if (appointment.getStatus().equalsIgnoreCase("upcoming")) {
             androidx.appcompat.app.AlertDialog.Builder builder =
                     new androidx.appcompat.app.AlertDialog.Builder(this);
             builder.setTitle("Appointment Options")
@@ -181,13 +243,29 @@ public class ScheduleActivity extends AppCompatActivity {
     }
 
     private void cancelAppointment(Appointment apt) {
+        String userId = mAuth.getUid();
+        if (userId == null) return;
+
+        // Update locally first for responsiveness
         apt.setStatus("canceled");
         updateCounts();
-        loadAppointments();
-        androidx.appcompat.app.AlertDialog.Builder builder =
-                new androidx.appcompat.app.AlertDialog.Builder(this);
-        builder.setMessage("Appointment canceled successfully")
-                .setPositiveButton("OK", null)
-                .show();
+        filterAndDisplay();
+
+        // Update in Firestore
+        db.collection("users").document(userId).collection("my_appointments")
+                .document(apt.getId())
+                .update("status", "canceled")
+                .addOnSuccessListener(aVoid -> {
+                    // Also update global collection
+                    db.collection("appointments").document(apt.getId())
+                            .update("status", "canceled");
+
+                    Toast.makeText(this, "Appointment canceled", Toast.LENGTH_SHORT).show();
+                })
+                .addOnFailureListener(e -> {
+                    Toast.makeText(this, "Failed to cancel: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    // Re-fetch to reset state if failed
+                    fetchAppointmentsFromFirestore();
+                });
     }
 }

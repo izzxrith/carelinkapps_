@@ -2,6 +2,7 @@ package com.example.carelink;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -11,14 +12,19 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.carelink.adapters.DoctorSlotAdapter;
 import com.example.carelink.models.Doctor;
 import com.example.carelink.models.TimeSlot;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class AvailableSlotsActivity extends AppCompatActivity implements DoctorSlotAdapter.OnSlotClickListener {
 
+    private static final String TAG = "AvailableSlotsActivity";
     private RecyclerView recyclerView;
     private DoctorSlotAdapter adapter;
     private List<TimeSlot> timeSlots;
+    private FirebaseFirestore db;
 
     private String patientName, phone, clinicName, clinicAddress, date;
     private double clinicLat, clinicLng;
@@ -27,6 +33,8 @@ public class AvailableSlotsActivity extends AppCompatActivity implements DoctorS
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_available_slots);
+
+        db = FirebaseFirestore.getInstance();
 
         patientName = getIntent().getStringExtra("PATIENT_NAME");
         phone = getIntent().getStringExtra("PHONE");
@@ -38,7 +46,7 @@ public class AvailableSlotsActivity extends AppCompatActivity implements DoctorS
 
         initViews();
         setupHeader();
-        loadTimeSlots();
+        loadTimeSlotsFromFirestore();
     }
 
     private void initViews() {
@@ -57,19 +65,53 @@ public class AvailableSlotsActivity extends AppCompatActivity implements DoctorS
         tvDate.setText(date + " | " + clinicName);
     }
 
-    private void loadTimeSlots() {
+    private void loadTimeSlotsFromFirestore() {
         timeSlots = new ArrayList<>();
+        
+        // Fetching from Firestore collection "time_slots"
+        db.collection("time_slots")
+            .whereEqualTo("date", date) // Only show slots for the selected date
+            .get()
+            .addOnCompleteListener(task -> {
+                if (task.isSuccessful()) {
+                    for (QueryDocumentSnapshot document : task.getResult()) {
+                        try {
+                            String time = document.getString("time");
+                            String duration = document.getString("duration");
+                            Double price = document.getDouble("price");
+                            
+                            // Get doctor details nested in the document
+                            Map<String, Object> docData = (Map<String, Object>) document.get("doctor");
+                            String docName = (String) docData.get("name");
+                            String specialty = (String) docData.get("specialty");
+                            Long imgResLong = (Long) docData.get("imageResource");
+                            int imgRes = imgResLong != null ? imgResLong.intValue() : R.drawable.ic_doctor_male;
+                            Double rating = (Double) docData.get("rating");
 
-        Doctor doc1 = new Doctor("Dr. Sarah", "Nephrology (Kidney diseases & Care)", R.drawable.ic_doctor_female, 4.8);
-        Doctor doc2 = new Doctor("Dr. Rajesh Kumar", "Radiology (X-ray & CT Scan)", R.drawable.ic_doctor_male, 4.5);
-        Doctor doc3 = new Doctor("Dr. Lim Mei Hua", "General Surgery", R.drawable.ic_doctor_female, 4.9);
-        Doctor doc4 = new Doctor("Dr. Ahmad Abdullah", "Dermatology (Skin & Hair)", R.drawable.ic_doctor_male, 4.7);
+                            Doctor doctor = new Doctor(docName, specialty, imgRes, rating != null ? rating : 0.0);
+                            timeSlots.add(new TimeSlot(time, duration, price != null ? price : 0.0, doctor, true));
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error parsing slot: " + e.getMessage());
+                        }
+                    }
+                    
+                    // If no slots found in cloud, load local sample data so the screen isn't empty
+                    if (timeSlots.isEmpty()) {
+                        loadSampleData();
+                    }
 
+                    adapter = new DoctorSlotAdapter(timeSlots, this);
+                    recyclerView.setAdapter(adapter);
+                } else {
+                    Toast.makeText(this, "Error fetching slots", Toast.LENGTH_SHORT).show();
+                    loadSampleData();
+                }
+            });
+    }
+
+    private void loadSampleData() {
+        Doctor doc1 = new Doctor("Dr. Sarah", "Nephrology", R.drawable.ic_doctor_female, 4.8);
         timeSlots.add(new TimeSlot("09:00 AM - 10:00 AM", "1 Hour", 150.00, doc1, true));
-        timeSlots.add(new TimeSlot("10:30 AM - 11:30 AM", "1 Hour", 120.00, doc2, true));
-        timeSlots.add(new TimeSlot("02:00 PM - 03:00 PM", "1 Hour", 180.00, doc3, true));
-        timeSlots.add(new TimeSlot("04:30 PM - 05:30 PM", "1 Hour", 130.00, doc4, true));
-
         adapter = new DoctorSlotAdapter(timeSlots, this);
         recyclerView.setAdapter(adapter);
     }

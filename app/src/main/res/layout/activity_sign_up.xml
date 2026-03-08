@@ -85,6 +85,47 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
+    <!-- Role Selection -->
+    <TextView
+        android:id="@+id/tvRoleTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="I am a:"
+        android:textColor="#1B5E20"
+        android:textStyle="bold"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/inputPassword"
+        app:layout_constraintStart_toStartOf="@id/inputPassword"/>
+
+    <RadioGroup
+        android:id="@+id/rgRole"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toBottomOf="@id/tvRoleTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <RadioButton
+            android:id="@+id/rbGuardian"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Guardian"
+            android:checked="true"
+            android:buttonTint="#2E7D32"
+            android:textColor="#555555"/>
+
+        <RadioButton
+            android:id="@+id/rbStudent"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Student"
+            android:buttonTint="#2E7D32"
+            android:textColor="#555555"/>
+    </RadioGroup>
+
     <!-- Terms Checkbox -->
     <CheckBox
         android:id="@+id/checkTerms"
@@ -92,8 +133,8 @@
         android:layout_height="wrap_content"
         android:text="I agree to the Terms and Privacy Policy"
         android:textColor="#555555"
-        android:layout_marginTop="14dp"
-        app:layout_constraintTop_toBottomOf="@id/inputPassword"
+        android:layout_marginTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/rgRole"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
@@ -108,7 +149,7 @@
         android:textColor="@android:color/white"
         android:backgroundTint="#2E7D32"
         android:elevation="4dp"
-        android:layout_marginTop="26dp"
+        android:layout_marginTop="16dp"
         app:cornerRadius="20dp"
         app:layout_constraintTop_toBottomOf="@id/checkTerms"
         app:layout_constraintStart_toStartOf="parent"

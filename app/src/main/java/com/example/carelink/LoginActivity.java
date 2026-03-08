@@ -1,8 +1,8 @@
 package com.example.carelink;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -15,35 +15,29 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-// Google Sign-In
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.tasks.Task;
-
-// Firebase Auth
 import com.google.firebase.auth.AuthCredential;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.auth.GoogleAuthProvider;
-import com.google.firebase.auth.OAuthProvider;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 public class LoginActivity extends AppCompatActivity {
+    private static final String TAG = "LoginActivity";
     private EditText inputEmail, inputPassword;
     private Button btnLogin;
     private TextView tvForgot, tvSignUp;
     private ImageButton btnGoogle, btnFacebook;
 
-    private static final String PREFS_NAME = "CareLinkUserPrefs";
-    private static final String KEY_EMAIL = "user_email";
-    private static final String KEY_PASSWORD = "user_password";
-    private static final String KEY_REGISTERED = "is_registered";
-
     private static final int RC_GOOGLE_SIGN_IN = 9001;
-
     private FirebaseAuth mAuth;
+    private FirebaseFirestore db;
     private GoogleSignInClient mGoogleSignInClient;
 
     @Override
@@ -52,25 +46,18 @@ public class LoginActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_login);
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
-            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-            return insets;
-        });
-
         mAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
 
-        FirebaseUser currentUser = mAuth.getCurrentUser();
-        if (currentUser != null) {
-            goToMainScreen();
-            return;
-        }
-
-        if (!isUserRegistered() && !isSocialLoginUser()) {
-            Toast.makeText(this, "Please sign up first", Toast.LENGTH_LONG).show();
-            startActivity(new Intent(this, SignUpActivity.class));
-            finish();
-            return;
+        // --- EMULATOR SETUP (Bypasses Spark Plan Limits) ---
+        try {
+            // 10.0.2.2 is the special IP to reach your computer's localhost from the Android Emulator
+            mAuth.useEmulator("10.0.2.2", 9099);
+            db.useEmulator("10.0.2.2", 8080);
+            FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
+            Log.d(TAG, "Successfully connected to Firebase Emulators");
+        } catch (Exception e) {
+            Log.d(TAG, "Emulators already running or connection skipped");
         }
 
         initializeViews();
@@ -106,76 +93,60 @@ public class LoginActivity extends AppCompatActivity {
                 return;
             }
 
-            if (validateCredentials(email, pass)) {
-                Toast.makeText(this, "Login successful!", Toast.LENGTH_SHORT).show();
-                goToMainScreen();
-            } else {
-                Toast.makeText(this, "Invalid email or password", Toast.LENGTH_SHORT).show();
-            }
-        });
-
-        tvForgot.setOnClickListener(v -> {
-            String email = inputEmail.getText().toString().trim();
-            if (email.isEmpty()) {
-                Toast.makeText(this, "Please enter your email first", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            mAuth.sendPasswordResetEmail(email)
-                    .addOnCompleteListener(task -> {
-                        if (task.isSuccessful()) {
-                            Toast.makeText(this, "Password reset email sent!", Toast.LENGTH_SHORT).show();
-                        } else {
-                            Toast.makeText(this, "Failed to send reset email", Toast.LENGTH_SHORT).show();
-                        }
-                    });
+            mAuth.signInWithEmailAndPassword(email, pass)
+                .addOnCompleteListener(this, task -> {
+                    if (task.isSuccessful()) {
+                        checkUserRoleAndRedirect();
+                    } else {
+                        Toast.makeText(this, "Login Failed: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
+                    }
+                });
         });
 
         tvSignUp.setOnClickListener(v -> {
             startActivity(new Intent(LoginActivity.this, SignUpActivity.class));
             finish();
         });
-
-        btnGoogle.setOnClickListener(v -> {
-            Intent signInIntent = mGoogleSignInClient.getSignInIntent();
-            startActivityForResult(signInIntent, RC_GOOGLE_SIGN_IN);
-        });
-
-        btnFacebook.setOnClickListener(v -> {
-            Toast.makeText(this, "Facebook login coming soon!", Toast.LENGTH_SHORT).show();
-        });
     }
 
-    // ==================== AUTHENTICATION METHODS ====================
+    private void checkUserRoleAndRedirect() {
+        FirebaseUser user = mAuth.getCurrentUser();
+        if (user == null) return;
 
-    private boolean isUserRegistered() {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        return prefs.getBoolean(KEY_REGISTERED, false);
-    }
-
-    private boolean isSocialLoginUser() {
-        return mAuth.getCurrentUser() != null;
-    }
-
-    private boolean validateCredentials(String email, String password) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        String savedEmail = prefs.getString(KEY_EMAIL, "");
-        String savedPassword = prefs.getString(KEY_PASSWORD, "");
-
-        return email.equals(savedEmail) && password.equals(savedPassword);
+        db.collection("users").document(user.getUid()).get()
+            .addOnSuccessListener(documentSnapshot -> {
+                if (documentSnapshot.exists()) {
+                    String role = documentSnapshot.getString("role");
+                    Intent intent;
+                    if ("Student".equalsIgnoreCase(role)) {
+                        intent = new Intent(LoginActivity.this, WatchDashboardActivity.class);
+                    } else {
+                        intent = new Intent(LoginActivity.this, DashboardActivity.class);
+                    }
+                    intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    finish();
+                } else {
+                    startActivity(new Intent(LoginActivity.this, DashboardActivity.class));
+                    finish();
+                }
+            })
+            .addOnFailureListener(e -> {
+                startActivity(new Intent(LoginActivity.this, DashboardActivity.class));
+                finish();
+            });
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
         if (requestCode == RC_GOOGLE_SIGN_IN) {
             Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(data);
             try {
                 GoogleSignInAccount account = task.getResult(ApiException.class);
                 firebaseAuthWithGoogle(account.getIdToken());
             } catch (ApiException e) {
-                Toast.makeText(this, "Google sign in failed: " + e.getStatusCode(), Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Google sign in failed", e);
             }
         }
     }
@@ -185,34 +156,8 @@ public class LoginActivity extends AppCompatActivity {
         mAuth.signInWithCredential(credential)
                 .addOnCompleteListener(this, task -> {
                     if (task.isSuccessful()) {
-                        FirebaseUser user = mAuth.getCurrentUser();
-                        Toast.makeText(this, "Welcome " + (user != null ? user.getDisplayName() : "User"), Toast.LENGTH_SHORT).show();
-                        goToMainScreen();
-                    } else {
-                        Toast.makeText(this, "Authentication failed", Toast.LENGTH_SHORT).show();
+                        checkUserRoleAndRedirect();
                     }
                 });
-    }
-
-    private void signInWithApple() {
-        OAuthProvider.Builder provider = OAuthProvider.newBuilder("apple.com");
-        provider.addCustomParameter("locale", "en");
-
-        mAuth.startActivityForSignInWithProvider(this, provider.build())
-                .addOnSuccessListener(authResult -> {
-                    FirebaseUser user = authResult.getUser();
-                    Toast.makeText(this, "Welcome " + (user != null ? user.getDisplayName() : "User"), Toast.LENGTH_SHORT).show();
-                    goToMainScreen();
-                })
-                .addOnFailureListener(e -> {
-                    Toast.makeText(this, "Apple Sign-In failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
-    }
-
-    private void goToMainScreen() {
-        Intent intent = new Intent(LoginActivity.this, DashboardActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-        finish();
     }
 }

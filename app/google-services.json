@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "811632391268",
-    "project_id": "carelink-b507f",
-    "storage_bucket": "carelink-b507f.firebasestorage.app"
+    "project_number": "684017601837",
+    "project_id": "carelink-22c6a",
+    "storage_bucket": "carelink-22c6a.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:811632391268:android:7621122814f66f8621db71",
+        "mobilesdk_app_id": "1:684017601837:android:f0b688418ce710c68fd7a4",
         "android_client_info": {
           "package_name": "com.example.carelink"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyApyvRoOXHXPGBR37cbjBAUgc_SA2fcZJw"
+          "current_key": "AIzaSyCru-DM7nsfEr0WVEg2ZdVwVvl0lU-PkFg"
         }
       ],
       "services": {

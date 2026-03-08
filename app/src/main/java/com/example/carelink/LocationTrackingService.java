@@ -42,26 +42,30 @@ public class LocationTrackingService extends Service {
     private LocationCallback locationCallback;
     private String userId;
 
+    // SPARK PLAN OPTIMIZATION:
+    // Update every 30 seconds instead of every 2 seconds.
+    private static final long UPDATE_INTERVAL = 30000; // 30 seconds
+    private static final long MIN_UPDATE_INTERVAL = 20000; // 20 seconds
+
     @Override
     public void onCreate() {
         super.onCreate();
-
         FirebaseDatabase database = FirebaseDatabase.getInstance();
         databaseRef = database.getReference("locations");
-
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        userId = intent.getStringExtra("userId");
+        if (intent != null) {
+            userId = intent.getStringExtra("userId");
+        }
         if (userId == null) {
             userId = "user_default";
         }
 
         createNotificationChannel();
         startForeground(NOTIFICATION_ID, buildNotification());
-
         startLocationUpdates();
 
         return START_STICKY;
@@ -69,10 +73,9 @@ public class LocationTrackingService extends Service {
 
     private void startLocationUpdates() {
         LocationRequest locationRequest = new LocationRequest.Builder(
-                Priority.PRIORITY_HIGH_ACCURACY, 5000) // 5 seconds
-                .setWaitForAccurateLocation(false)
-                .setMinUpdateIntervalMillis(2000) // 2 seconds minimum
-                .setMaxUpdateDelayMillis(10000) // 10 seconds maximum
+                Priority.PRIORITY_BALANCED_POWER_ACCURACY, UPDATE_INTERVAL)
+                .setMinUpdateIntervalMillis(MIN_UPDATE_INTERVAL)
+                .setMaxUpdateDelayMillis(UPDATE_INTERVAL * 2)
                 .build();
 
         locationCallback = new LocationCallback() {
@@ -103,14 +106,17 @@ public class LocationTrackingService extends Service {
         locationData.put("timestamp", System.currentTimeMillis());
         locationData.put("dateTime", getCurrentDateTime());
 
+        // Update to Firebase Realtime Database
         databaseRef.child(userId).setValue(locationData)
-                .addOnSuccessListener(aVoid -> Log.d(TAG, "Location updated"))
+                .addOnSuccessListener(aVoid -> Log.d(TAG, "Location updated successfully (Spark Optimized)"))
                 .addOnFailureListener(e -> Log.e(TAG, "Failed to update location", e));
     }
+
     private String getCurrentDateTime() {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
         return sdf.format(new Date());
     }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
@@ -118,8 +124,7 @@ public class LocationTrackingService extends Service {
                     "Location Tracking",
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("Tracking location in background");
-
+            channel.setDescription("CareLink tracking active for student safety");
             NotificationManager manager = getSystemService(NotificationManager.class);
             manager.createNotificationChannel(channel);
         }
@@ -132,8 +137,8 @@ public class LocationTrackingService extends Service {
         );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("CareLink Tracking Active")
-                .setContentText("Sharing your location with family")
+                .setContentTitle("CareLink Safety Active")
+                .setContentText("Student location is being protected.")
                 .setSmallIcon(R.drawable.ic_location_pin)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)

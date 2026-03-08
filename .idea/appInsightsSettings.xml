@@ -9,9 +9,9 @@
               <option name="connection">
                 <ConnectionSetting>
                   <option name="appId" value="com.example.carelink" />
-                  <option name="mobileSdkAppId" value="1:811632391268:android:7621122814f66f8621db71" />
-                  <option name="projectId" value="carelink-b507f" />
-                  <option name="projectNumber" value="811632391268" />
+                  <option name="mobileSdkAppId" value="1:684017601837:android:f0b688418ce710c68fd7a4" />
+                  <option name="projectId" value="carelink-22c6a" />
+                  <option name="projectNumber" value="684017601837" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

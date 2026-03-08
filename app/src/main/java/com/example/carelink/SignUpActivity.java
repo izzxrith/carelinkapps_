@@ -1,11 +1,13 @@
 package com.example.carelink;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
@@ -15,19 +17,20 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.database.FirebaseDatabase;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SignUpActivity extends AppCompatActivity {
+    private static final String TAG = "SignUpActivity";
     private EditText inputName, inputEmail, inputPassword;
     private CheckBox checkTerms;
+    private RadioGroup rgRole;
     private Button btnSignUp;
     private TextView tvLogin;
     private FirebaseAuth mAuth;
-
-    private static final String PREFS_NAME = "CareLinkUserPrefs";
-    private static final String KEY_NAME = "user_name";
-    private static final String KEY_EMAIL = "user_email";
-    private static final String KEY_PASSWORD = "user_password";
-    private static final String KEY_REGISTERED = "is_registered";
+    private FirebaseFirestore db;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,10 +45,22 @@ public class SignUpActivity extends AppCompatActivity {
         });
 
         mAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
+        // --- EMULATOR SETUP (Bypasses Spark Plan Limits) ---
+        try {
+            mAuth.useEmulator("10.0.2.2", 9099);
+            db.useEmulator("10.0.2.2", 8080);
+            FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
+            Log.d(TAG, "Connected to Firebase Emulators");
+        } catch (Exception e) {
+            Log.d(TAG, "Emulator already connected or skipped");
+        }
 
         inputName = findViewById(R.id.inputName);
         inputEmail = findViewById(R.id.inputEmail);
         inputPassword = findViewById(R.id.inputPassword);
+        rgRole = findViewById(R.id.rgRole);
         checkTerms = findViewById(R.id.checkTerms);
         btnSignUp = findViewById(R.id.btnSignUp);
         tvLogin = findViewById(R.id.tvLogin);
@@ -69,6 +84,12 @@ public class SignUpActivity extends AppCompatActivity {
         String name = inputName.getText().toString().trim();
         String email = inputEmail.getText().toString().trim();
         String pass = inputPassword.getText().toString().trim();
+        
+        String role = "Guardian"; // Default
+        int selectedId = rgRole.getCheckedRadioButtonId();
+        if (selectedId == R.id.rbStudent) {
+            role = "Student";
+        }
 
         if (name.isEmpty() || email.isEmpty() || pass.isEmpty()) {
             Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show();
@@ -77,31 +98,19 @@ public class SignUpActivity extends AppCompatActivity {
 
         if (!isValidEmail(email)) {
             Toast.makeText(this, "Invalid email address! Please use @gmail.com", Toast.LENGTH_LONG).show();
-            inputEmail.setError("Email must be a valid @gmail.com address");
-            inputEmail.requestFocus();
             return;
         }
 
-        String passwordError = isValidPassword(pass);
-        if (passwordError != null) {
-            Toast.makeText(this, passwordError, Toast.LENGTH_LONG).show();
-            inputPassword.setError(passwordError);
-            inputPassword.requestFocus();
-            return;
-        }
-
+        final String finalRole = role;
         mAuth.createUserWithEmailAndPassword(email, pass)
                 .addOnCompleteListener(this, task -> {
                     if (task.isSuccessful()) {
-                        saveUserData(name, email, pass);
-
                         FirebaseUser user = mAuth.getCurrentUser();
-                        Toast.makeText(this, "Account created: " + user.getEmail(), Toast.LENGTH_SHORT).show();
-
-                        startActivity(new Intent(SignUpActivity.this, LoginActivity.class));
-                        finish();
+                        if (user != null) {
+                            saveUserDataToFirestore(user.getUid(), name, email, finalRole);
+                        }
                     } else {
-                        Toast.makeText(this, "Error: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Registration Failed: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
     }
@@ -110,55 +119,24 @@ public class SignUpActivity extends AppCompatActivity {
         return email.matches("^[a-zA-Z0-9._%+-]+@gmail\\.com$");
     }
 
-    private String isValidPassword(String password) {
-        if (password.length() < 8) {
-            return "Password must be at least 8 characters";
-        }
+    private void saveUserDataToFirestore(String userId, String name, String email, String role) {
+        Map<String, Object> userMap = new HashMap<>();
+        userMap.put("uid", userId);
+        userMap.put("name", name);
+        userMap.put("email", email);
+        userMap.put("role", role);
+        userMap.put("createdAt", System.currentTimeMillis());
 
-        boolean hasUpper = false;
-        boolean hasLower = false;
-        boolean hasNumber = false;
-        boolean hasSymbol = false;
-
-        for (char c : password.toCharArray()) {
-            if (Character.isUpperCase(c)) hasUpper = true;
-            else if (Character.isLowerCase(c)) hasLower = true;
-            else if (Character.isDigit(c)) hasNumber = true;
-            else if ("!@#$%^&*()_+-=[]{}|;:,.<>?".indexOf(c) != -1) hasSymbol = true;
-        }
-
-        StringBuilder error = new StringBuilder("Password must contain:");
-        boolean hasError = false;
-
-        if (!hasUpper) {
-            error.append("\n• At least 1 uppercase letter");
-            hasError = true;
-        }
-        if (!hasLower) {
-            error.append("\n• At least 1 lowercase letter");
-            hasError = true;
-        }
-        if (!hasNumber) {
-            error.append("\n• At least 1 number");
-            hasError = true;
-        }
-        if (!hasSymbol) {
-            error.append("\n• At least 1 special symbol (!@#$%^&*)");
-            hasError = true;
-        }
-
-        return hasError ? error.toString() : null;
-    }
-
-    private void saveUserData(String name, String email, String password) {
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        SharedPreferences.Editor editor = prefs.edit();
-
-        editor.putString(KEY_NAME, name);
-        editor.putString(KEY_EMAIL, email);
-        editor.putString(KEY_PASSWORD, password);
-        editor.putBoolean(KEY_REGISTERED, true);
-
-        editor.apply();
+        db.collection("users").document(userId)
+                .set(userMap)
+                .addOnSuccessListener(aVoid -> {
+                    Toast.makeText(SignUpActivity.this, "Success! Please login to your local account.", Toast.LENGTH_SHORT).show();
+                    mAuth.signOut();
+                    startActivity(new Intent(SignUpActivity.this, LoginActivity.class));
+                    finish();
+                })
+                .addOnFailureListener(e -> {
+                    Toast.makeText(SignUpActivity.this, "Local Firestore Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
     }
 }

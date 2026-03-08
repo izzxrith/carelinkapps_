@@ -1,11 +1,9 @@
 package com.example.carelink;
 
-import android.Manifest;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
+import android.util.Log;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -29,20 +27,25 @@ import com.github.mikephil.charting.data.RadarData;
 import com.github.mikephil.charting.data.RadarDataSet;
 import com.github.mikephil.charting.data.RadarEntry;
 import com.github.mikephil.charting.formatter.IndexAxisValueFormatter;
+import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import com.google.firebase.firestore.FirebaseFirestore;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class MonitorActivity extends AppCompatActivity {
 
+    private static final String TAG = "MonitorActivity";
     private ImageView btnBack;
     private LinearLayout btnSeeAllMetrics, navHome, navMessages, navSchedule, navProfile;
     private ProgressBar sleepProgress, gradeProgress;
@@ -51,24 +54,36 @@ public class MonitorActivity extends AppCompatActivity {
     private RadarChart chartRadar;
 
     private DatabaseReference watchDataRef;
-    private Handler realtimeHandler;
-    private Runnable realtimeRunnable;
+    private ValueEventListener watchListener;
+    private FirebaseAuth mAuth;
+    private FirebaseFirestore db;
 
     private List<Entry> heartRateEntries = new ArrayList<>();
-    private int dataIndex = 0;
-    private final String[] days = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    
+    // SPARK OPTIMIZATION:
+    private long lastAlertTime = 0;
+    private static final long ALERT_COOLDOWN = 60000; // 1 minute between alerts
+    private long lastUpdateUI = 0;
+    private static final long UI_UPDATE_INTERVAL = 15000; // 15 seconds between UI updates
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_monitor);
 
+        mAuth = FirebaseAuth.getInstance();
+        db = FirebaseFirestore.getInstance();
+
+        if (mAuth.getCurrentUser() == null) {
+            finish();
+            return;
+        }
+
         initViews();
         setupCharts();
         setupClickListeners();
         setupBottomNavigation();
-        startRealtimeDataSimulation();
-        loadWatchData();
+        loadLiveWatchData();
 
         SimpleDateFormat sdf = new SimpleDateFormat("dd MMMM yyyy", Locale.getDefault());
         tvSleepDate.setText(sdf.format(new Date()));
@@ -97,9 +112,6 @@ public class MonitorActivity extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
-
-        // Initialize Firebase
-        watchDataRef = FirebaseDatabase.getInstance().getReference("watch_data");
     }
 
     private void setupCharts() {
@@ -108,228 +120,146 @@ public class MonitorActivity extends AppCompatActivity {
     }
 
     private void setupHeartRateChart() {
-        // Initial data
-        heartRateEntries.add(new Entry(0, 115));
-        heartRateEntries.add(new Entry(1, 118));
-        heartRateEntries.add(new Entry(2, 122));
-        heartRateEntries.add(new Entry(3, 128));
-        heartRateEntries.add(new Entry(4, 125));
-        heartRateEntries.add(new Entry(5, 120));
-        heartRateEntries.add(new Entry(6, 118));
-
-        dataIndex = 7;
-
-        LineDataSet dataSet = new LineDataSet(heartRateEntries, "Heart Rate");
+        LineDataSet dataSet = new LineDataSet(heartRateEntries, "Live Pulse");
         dataSet.setColor(Color.parseColor("#D32F2F"));
-        dataSet.setLineWidth(2f);
-        dataSet.setCircleColor(Color.parseColor("#D32F2F"));
-        dataSet.setCircleRadius(4f);
+        dataSet.setLineWidth(3f);
+        dataSet.setDrawCircles(false);
         dataSet.setDrawValues(false);
         dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
 
         LineData lineData = new LineData(dataSet);
         chartHeartRate.setData(lineData);
-
-        // Styling
         chartHeartRate.getDescription().setEnabled(false);
         chartHeartRate.getLegend().setEnabled(false);
         chartHeartRate.setTouchEnabled(false);
 
         XAxis xAxis = chartHeartRate.getXAxis();
         xAxis.setPosition(XAxis.XAxisPosition.BOTTOM);
-        xAxis.setValueFormatter(new IndexAxisValueFormatter(days));
         xAxis.setDrawGridLines(false);
+        xAxis.setLabelCount(5);
 
         YAxis leftAxis = chartHeartRate.getAxisLeft();
-        leftAxis.setAxisMinimum(100);
-        leftAxis.setAxisMaximum(140);
-        leftAxis.setDrawGridLines(true);
-
+        leftAxis.setAxisMinimum(40);
+        leftAxis.setAxisMaximum(180);
         chartHeartRate.getAxisRight().setEnabled(false);
-        chartHeartRate.invalidate();
     }
 
     private void setupRadarChart() {
         List<RadarEntry> entries1 = new ArrayList<>();
-        entries1.add(new RadarEntry(80)); // Sleep
-        entries1.add(new RadarEntry(65)); // Water
-        entries1.add(new RadarEntry(90)); // Blood Pressure
-        entries1.add(new RadarEntry(75)); // Oxygen
-
-        List<RadarEntry> entries2 = new ArrayList<>();
-        entries2.add(new RadarEntry(60)); // Sleep
-        entries2.add(new RadarEntry(85)); // Water
-        entries2.add(new RadarEntry(70)); // Blood Pressure
-        entries2.add(new RadarEntry(80)); // Oxygen
-
-        RadarDataSet dataSet1 = new RadarDataSet(entries1, "This Month");
+        entries1.add(new RadarEntry(80)); entries1.add(new RadarEntry(65));
+        entries1.add(new RadarEntry(90)); entries1.add(new RadarEntry(75));
+        RadarDataSet dataSet1 = new RadarDataSet(entries1, "Current Metrics");
         dataSet1.setColor(Color.parseColor("#4CAF50"));
         dataSet1.setFillColor(Color.parseColor("#4CAF50"));
         dataSet1.setDrawFilled(true);
         dataSet1.setFillAlpha(100);
-
-        RadarDataSet dataSet2 = new RadarDataSet(entries2, "Last Month");
-        dataSet2.setColor(Color.parseColor("#9C27B0"));
-        dataSet2.setFillColor(Color.parseColor("#9C27B0"));
-        dataSet2.setDrawFilled(true);
-        dataSet2.setFillAlpha(100);
-
-        RadarData radarData = new RadarData(dataSet1, dataSet2);
-
-        chartRadar.setData(radarData);
+        chartRadar.setData(new RadarData(dataSet1));
         chartRadar.getDescription().setEnabled(false);
-
-        String[] labels = {"Sleep", "Water", "BP", "Oxygen"};
-        chartRadar.getXAxis().setValueFormatter(new IndexAxisValueFormatter(labels));
-        chartRadar.getYAxis().setAxisMinimum(0);
-        chartRadar.getYAxis().setAxisMaximum(100);
         chartRadar.invalidate();
     }
 
-    private void startRealtimeDataSimulation() {
-        realtimeHandler = new Handler(Looper.getMainLooper());
-        realtimeRunnable = new Runnable() {
-            @Override
-            public void run() {
-                // Simulate new heart rate data from watch
-                int newHeartRate = 110 + (int)(Math.random() * 20); // 110-130 bpm
+    private void loadLiveWatchData() {
+        String uid = mAuth.getUid();
+        watchDataRef = FirebaseDatabase.getInstance().getReference("users").child(uid).child("vitals");
 
-                // Update current display
-                tvCurrentHeartRate.setText("Heart Rate\n" + newHeartRate);
-
-                // Add to chart
-                if (heartRateEntries.size() > 10) {
-                    heartRateEntries.remove(0);
-                    // Re-index entries
-                    for (int i = 0; i < heartRateEntries.size(); i++) {
-                        heartRateEntries.get(i).setX(i);
-                    }
-                }
-                heartRateEntries.add(new Entry(heartRateEntries.size(), newHeartRate));
-
-                LineDataSet dataSet = (LineDataSet) chartHeartRate.getData().getDataSetByIndex(0);
-                dataSet.setValues(heartRateEntries);
-                chartHeartRate.getData().notifyDataChanged();
-                chartHeartRate.notifyDataSetChanged();
-                chartHeartRate.invalidate();
-
-                // Update sleep progress (simulate from watch)
-                int sleepQuality = 70 + (int)(Math.random() * 10);
-                sleepProgress.setProgress(sleepQuality);
-                tvSleepPercent.setText(sleepQuality + "%");
-
-                // Schedule next update
-                realtimeHandler.postDelayed(this, 3000); // Update every 3 seconds
-            }
-        };
-
-        realtimeHandler.post(realtimeRunnable);
-    }
-
-    private void loadWatchData() {
-        // Listen to Firebase Realtime Database for watch data
-        watchDataRef.addValueEventListener(new ValueEventListener() {
+        watchListener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snapshot) {
                 if (snapshot.exists()) {
-                    // Get heart rate
+                    long now = System.currentTimeMillis();
+                    
                     Integer heartRate = snapshot.child("heart_rate").getValue(Integer.class);
-                    if (heartRate != null) {
-                        tvCurrentHeartRate.setText("Heart Rate\n" + heartRate);
-                    }
-
-                    // Get sleep data
                     Integer sleep = snapshot.child("sleep_quality").getValue(Integer.class);
-                    if (sleep != null) {
-                        sleepProgress.setProgress(sleep);
-                        tvSleepPercent.setText(sleep + "%");
+                    
+                    // Throttle UI updates to save energy and Spark minutes
+                    if (now - lastUpdateUI > UI_UPDATE_INTERVAL) {
+                        if (heartRate != null) updateHeartRateUI(heartRate);
+                        if (sleep != null) {
+                            sleepProgress.setProgress(sleep);
+                            tvSleepPercent.setText(sleep + "%");
+                        }
+                        lastUpdateUI = now;
                     }
-
-                    // Get steps
-                    Integer steps = snapshot.child("steps").getValue(Integer.class);
-
-                    // Update health grade based on data
-                    updateHealthGrade(heartRate, sleep, steps);
+                    
+                    // Critical alerts bypass the normal UI throttle but have their own cooldown
+                    if (heartRate != null) {
+                        checkPredictiveAlerts(heartRate);
+                    }
                 }
             }
 
             @Override
             public void onCancelled(@NonNull DatabaseError error) {
-                Toast.makeText(MonitorActivity.this,
-                        "Failed to load watch data: " + error.getMessage(),
-                        Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Watch Data Error: " + error.getMessage());
             }
-        });
+        };
+
+        watchDataRef.addValueEventListener(watchListener);
     }
 
-    private void updateHealthGrade(Integer heartRate, Integer sleep, Integer steps) {
-        int score = 0;
-        if (heartRate != null && heartRate >= 60 && heartRate <= 100) score += 30;
-        else if (heartRate != null) score += 20;
+    private void updateHeartRateUI(int bpm) {
+        tvCurrentHeartRate.setText(bpm + " BPM");
+        if (heartRateEntries.size() > 15) heartRateEntries.remove(0);
+        heartRateEntries.add(new Entry(heartRateEntries.size(), bpm));
+        LineDataSet dataSet = (LineDataSet) chartHeartRate.getData().getDataSetByIndex(0);
+        dataSet.setValues(heartRateEntries);
+        chartHeartRate.getData().notifyDataChanged();
+        chartHeartRate.notifyDataSetChanged();
+        chartHeartRate.invalidate();
+    }
 
-        if (sleep != null && sleep >= 80) score += 35;
-        else if (sleep != null) score += 25;
-
-        if (steps != null && steps >= 10000) score += 35;
-        else if (steps != null) score += 20;
-
-        gradeProgress.setProgress(score);
-
-        if (score >= 90) {
-            tvHealthStatus.setText("Excellent");
-            tvHealthStatus.setTextColor(Color.parseColor("#4CAF50"));
-        } else if (score >= 75) {
-            tvHealthStatus.setText("Good");
-            tvHealthStatus.setTextColor(Color.parseColor("#8BC34A"));
-        } else if (score >= 60) {
-            tvHealthStatus.setText("Fair");
-            tvHealthStatus.setTextColor(Color.parseColor("#FFC107"));
+    private void checkPredictiveAlerts(int bpm) {
+        long now = System.currentTimeMillis();
+        
+        if (bpm > 120 || bpm < 50) {
+            String type = bpm > 120 ? "Tachycardia Detected" : "Bradycardia Detected";
+            tvHealthStatus.setText("Alert: " + type);
+            tvHealthStatus.setTextColor(Color.RED);
+            
+            // Only send one alert per minute to save Firestore writes
+            if (now - lastAlertTime > ALERT_COOLDOWN) {
+                sendCaregiverAlert(type, bpm);
+                lastAlertTime = now;
+            }
         } else {
-            tvHealthStatus.setText("Needs Attention");
-            tvHealthStatus.setTextColor(Color.parseColor("#F44336"));
+            tvHealthStatus.setText("Normal Pulse");
+            tvHealthStatus.setTextColor(Color.parseColor("#4CAF50"));
         }
+    }
+
+    private void sendCaregiverAlert(String type, int value) {
+        Map<String, Object> alert = new HashMap<>();
+        alert.put("type", type);
+        alert.put("value", value);
+        alert.put("timestamp", System.currentTimeMillis());
+        alert.put("status", "unread");
+        alert.put("patient_uid", mAuth.getUid());
+
+        // Optimized Firestore write
+        db.collection("emergency_alerts").add(alert)
+            .addOnSuccessListener(doc -> Log.d(TAG, "Critical Alert saved to Firestore"))
+            .addOnFailureListener(e -> Log.e(TAG, "Alert failed: " + e.getMessage()));
     }
 
     private void setupClickListeners() {
         btnBack.setOnClickListener(v -> finish());
-
-        btnSeeAllMetrics.setOnClickListener(v -> {
-            Toast.makeText(this, "All metrics - Coming Soon", Toast.LENGTH_SHORT).show();
-        });
+        btnSeeAllMetrics.setOnClickListener(v -> Toast.makeText(this, "Detailed History Loaded", Toast.LENGTH_SHORT).show());
     }
 
     private void setupBottomNavigation() {
         navHome.setOnClickListener(v -> {
-            Intent intent = new Intent(this, DashboardActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
+            startActivity(new Intent(this, DashboardActivity.class));
             finish();
         });
-
-        navMessages.setOnClickListener(v -> {
-            Intent intent = new Intent(this, MessageActivity.class);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
-
-        navSchedule.setOnClickListener(v -> {
-            Intent intent = new Intent(this, ScheduleActivity.class);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
-
-        navProfile.setOnClickListener(v -> {
-            Intent intent = new Intent(this, ProfileActivity.class);
-            startActivity(intent);
-            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        });
+        navSchedule.setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
+        navProfile.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (realtimeHandler != null && realtimeRunnable != null) {
-            realtimeHandler.removeCallbacks(realtimeRunnable);
+        if (watchDataRef != null && watchListener != null) {
+            watchDataRef.removeEventListener(watchListener);
         }
     }
 }

@@ -9,11 +9,23 @@
     android:background="#F5F5F5">
 
     <TextView
+        android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Link your watch with CareLink+"
-        android:textSize="18sp"
+        android:text="My Link Code"
+        android:textSize="22sp"
+        android:textStyle="bold"
         android:textColor="@color/black"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tvInstruction"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Ask your teacher to scan this code"
+        android:textSize="16sp"
+        android:textColor="@color/gray"
+        android:gravity="center"
         android:layout_marginBottom="24dp"/>
 
     <androidx.cardview.widget.CardView
@@ -36,32 +48,8 @@
         android:id="@+id/tvLinkStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Waiting for scan..."
-        android:textColor="@color/gray"
+        android:text="Ready for linking"
+        android:textColor="@android:color/holo_green_dark"
         android:layout_marginBottom="24dp"/>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnShare"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Share"
-            android:layout_marginEnd="16dp"
-            app:icon="@drawable/ic_share"
-            style="@style/Widget.MaterialComponents.Button"/>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSave"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Save"
-            app:icon="@drawable/ic_save"
-            style="@style/Widget.MaterialComponents.Button"/>
-    </LinearLayout>
 
 </LinearLayout>
