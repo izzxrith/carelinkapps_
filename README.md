@@ -1,53 +1,51 @@
 # CareLink+ (SK Pinji Edition)
 **Tagline:** Smart care, Safe life.
 
-## Overview
-CareLink+ is a predictive healthcare monitoring system designed specifically for the elderly and special needs students at **SK Pinji, Ipoh**. Unlike reactive apps, CareLink+ acts as a 24/7 "Secondary Guardian," utilizing real-time data to anticipate medical emergencies.
+## 🌟 Project Overview
+CareLink+ is a high-impact, **Predictive Healthcare** and monitoring system specifically tailored for special needs students at **SK Pinji, Ipoh**. Transitioning from a traditional reactive model to a proactive one, CareLink+ serves as a 24/7 "Secondary Guardian," utilizing real-time sensor data to anticipate distress and prevent wandering.
 
 ---
 
-## 🚀 Daily Development Routine
-To bypass the Firebase Spark plan limits and use the local backend, follow this sequence:
+## 🚀 Demo Startup Sequence
+To bypass Firebase Spark limits and use the fortified local backend:
 
-1. **Terminal:** 
+1. **Terminal:**
    ```bash
    cd ~/Documents/carelinkapps_
    npx firebase emulators:start --import ./my_data --export-on-exit ./my_data
    ```
 2. **Android Studio:** 
-   * Select your **Wear OS Emulator** (Student) or **Phone Emulator** (Guardian).
+   * Select **Wear OS Emulator** (Student) or **Phone Emulator** (Guardian).
    * Click the green **Run** button.
-3. **Browser:** Open [http://localhost:4000](http://localhost:4000) to view live data.
+3. **Browser:** [http://localhost:4000](http://localhost:4000) (Live Data Monitor).
 
 ---
 
-## ✨ Key Features Implemented
+## ✨ Core Predictive Features
 
-### 1. 🛡️ Predictive Care (Watch Mode)
-- **Auto-Detection:** App recognizes Wear OS hardware and skips to the Watch Interface.
-- **Easy Pairing:** Zero typing required. Student shows a QR code; Teacher scans it to link.
-- **HUGE SOS Button:** One-tap emergency trigger for students in distress.
-- **Vitals Streaming:** Automatically pushes heart rate data to the cloud every 30 seconds.
+### 1. 🛡️ Proactive Vitals & Fall Detection
+- **Live Status Board:** Teachers monitor the entire classroom at a glance. Cards turn **Orange (Agitated)** or **Red (Emergency)** based on real-time heart rate thresholds.
+- **Predictive Vitals:** Detects stress levels (100-120 BPM) before a crisis occurs.
+- **Automated Fall Alerts:** Integrated accelerometer logic sends instant cloud notifications to Guardians if a student falls.
 
-### 2. 👩‍🏫 Guardian Dashboard (Teacher Mode)
-- **Role-Based Redirect:** Teachers get a full dashboard with maps and doctor bookings.
-- **Student Monitoring:** Dashboard tracks how many students are active (e.g., "Monitoring 3 students").
-- **Live SOS Alerts:** High-priority pop-ups if a student presses HELP or has a high heart rate.
-- **Student Switching:** A dropdown on the map allows teachers to switch between different students instantly.
+### 2. 📍 Predictive Geofencing & Tracking
+- **Safe Zone:** Pinpoint accuracy centered on **SK Pinji (4.565549, 101.081350)**.
+- **Wandering Prevention:** Automatically flags students as "Wandering" if they exit the 500m school perimeter.
+- **Student Switcher:** Teachers can toggle between different students on the live map instantly.
 
-### 3. 📍 Ipoh Localization
-- **Local Hospitals:** Booking directory features KPJ Ipoh, Pantai Hospital, and Hospital Raja Permaisuri Bainun.
-- **Local Doctors:** Features Malay names like Dr. Ahmad Zaki and Dr. Siti Noraini.
-- **Map Focus:** Defaults to Ipoh coordinates for an authentic local demo.
+### 3. 😊 Pulse-Based Emotion Analysis
+- **Heart-to-Emotion:** Translates student pulse data into emotional insights (Peaceful, Content, Excited, Distressed).
+- **Behavioral Record:** Analyzes physical signals to provide a voice for non-verbal students.
 
-### 4. 👤 Cloud Profile Sync
-- **Live Sync:** Username and Profile Role are fetched from Firestore.
-- **Editable Info:** Teachers can update their name, phone, and birthday (using a DatePicker).
-- **Stable Navigation:** All back buttons and bottom navigation items are 100% wired.
+### 4. 🏥 Logistics & localized Support
+- **Ipoh Directory:** Features **Hospital Raja Permaisuri Bainun**, **KPJ Ipoh**, and local specialists like **Dr. Ahmad Zaki** and **Dr. Siti Noraini**.
+- **90-Day History:** Permanent logging of all vitals, location breadcrumbs, and emotional states for long-term clinical review.
+- **Unified Messaging:** Centralized chat for the Guardian-Doctor-Student care circle.
 
 ---
 
-## 🛠️ Technical Backend
-- **Global Config:** `CareLinkApp.java` handles emulator connections globally to prevent crashes.
-- **Database:** Uses Firestore for profile/alerts and Realtime Database for GPS/Pulse.
-- **Stability:** Null-checks and loading spinners implemented across all major activities.
+## 🛠️ Technical Fortification
+- **Architecture:** Global singleton `CareLinkApp.java` ensures stable Firebase connections.
+- **Frontend:** Native Android (Java/XML) optimized for both Phone and Wear OS.
+- **Backend:** Firebase Firestore (History/Alerts) & Realtime Database (Live GPS/BPM).
+- **Safety:** Bulletproof navigation, null-safety, and session persistence implemented.
