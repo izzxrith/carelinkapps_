@@ -1,11 +1,10 @@
 package com.example.carelink;
 
-import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Toast;
 import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -13,14 +12,15 @@ import com.example.carelink.adapters.DeviceHistoryAdapter;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.Query;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
 import java.util.ArrayList;
 import java.util.List;
 
 public class HistoryFragment extends Fragment {
 
-    private RecyclerView recyclerView;
     private DeviceHistoryAdapter adapter;
-    private List<DeviceItem> deviceList;
+    private List<DeviceItem> logList;
     private FirebaseFirestore db;
 
     public HistoryFragment() {}
@@ -31,83 +31,57 @@ public class HistoryFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_history, container, false);
 
         db = FirebaseFirestore.getInstance();
-        recyclerView = view.findViewById(R.id.recyclerHistory);
+        RecyclerView recyclerView = view.findViewById(R.id.recyclerHistory);
 
-        if (recyclerView == null) {
-            Toast.makeText(getContext(), "Error: RecyclerView not found", Toast.LENGTH_SHORT).show();
-            return view;
+        if (recyclerView != null) {
+            recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
+            logList = new ArrayList<>();
+            adapter = new DeviceHistoryAdapter(logList);
+            recyclerView.setAdapter(adapter);
         }
 
-        recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
-
-        deviceList = new ArrayList<>();
-        adapter = new DeviceHistoryAdapter(deviceList);
-        recyclerView.setAdapter(adapter);
-
-        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
-        if (user == null) {
-            Toast.makeText(getContext(), "Please login first", Toast.LENGTH_LONG).show();
-            startActivity(new Intent(getContext(), LoginActivity.class));
-            if (getActivity() != null) {
-                getActivity().finish();
-            }
-            return view;
-        }
-
-        loadDeviceHistory();
+        loadPredictiveSafetyHistory();
 
         return view;
     }
 
-    private void loadDeviceHistory() {
+    private void loadPredictiveSafetyHistory() {
         FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) return;
 
-        if (user == null) {
-            Toast.makeText(getContext(), "User not logged in", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String userId = user.getUid();
-
-        db.collection("users").document(userId)
-                .collection("devices")
-                .orderBy("linkedAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+        // FETCHING 90-DAY BEHAVIORAL INSIGHTS
+        db.collection("users").document(user.getUid())
+                .collection("behavioral_insights")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .limit(20)
                 .get()
                 .addOnSuccessListener(querySnapshot -> {
-                    deviceList.clear();
-
-                    if (querySnapshot.isEmpty()) {
-                        Toast.makeText(getContext(), "No linked devices yet", Toast.LENGTH_SHORT).show();
-                    }
-
-                    for (com.google.firebase.firestore.QueryDocumentSnapshot doc : querySnapshot) {
-                        try {
-                            DeviceItem item = new DeviceItem(
-                                    doc.getString("type"),
-                                    doc.getString("status"),
-                                    doc.getLong("linkedAt"),
-                                    doc.getString("linkId")
-                            );
-                            deviceList.add(item);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
+                    logList.clear();
+                    for (QueryDocumentSnapshot doc : querySnapshot) {
+                        String emotion = doc.getString("emotion");
+                        Long hr = doc.getLong("heartRate");
+                        Long ts = doc.getLong("timestamp");
+                        
+                        logList.add(new DeviceItem(
+                                "Safety Log",
+                                emotion + " (" + hr + " BPM)",
+                                ts != null ? ts : 0,
+                                doc.getId()
+                        ));
                     }
                     adapter.notifyDataSetChanged();
                 })
-                .addOnFailureListener(e -> {
-                    Toast.makeText(getContext(), "Failed to load: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                });
+                .addOnFailureListener(e -> Log.e("History", "Failed to load safety history"));
     }
 
     public static class DeviceItem {
         public String type, status, linkId;
         public long linkedAt;
 
-        public DeviceItem(String type, String status, Long linkedAt, String linkId) {
+        public DeviceItem(String type, String status, long linkedAt, String linkId) {
             this.type = type;
-            this.status = status != null ? status : "unknown";
-            this.linkedAt = linkedAt != null ? linkedAt : 0;
+            this.status = status;
+            this.linkedAt = linkedAt;
             this.linkId = linkId;
         }
     }

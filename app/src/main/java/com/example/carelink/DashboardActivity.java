@@ -2,7 +2,6 @@ package com.example.carelink;
 
 import android.content.Intent;
 import android.location.Location;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -32,6 +31,7 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
+import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
@@ -49,7 +49,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     private TextView tvWelcome, tvSubtitle, tvSeeAllLocation, tvSeeAllDoctors;
     private EditText etSearch;
     private LinearLayout btnDoctor, btnMonitor, btnEmotion, btnAmbulance, btnLink, btnOpenMap, layoutStudentBoard;
-    private CardView cardBanner;
     private RecyclerView rvTopDoctors, rvStudentStatus;
     private MapView ivMapPreview;
 
@@ -60,7 +59,10 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     
     private StudentStatusAdapter statusAdapter;
     private List<StudentStatus> studentStatusList = new ArrayList<>();
-    private Map<String, List<ValueEventListener>> studentListeners = new HashMap<>();
+    
+    // Safety: Group listeners for cleanup
+    private Map<String, ValueEventListener> vitalsListeners = new HashMap<>();
+    private Map<String, ValueEventListener> locationListeners = new HashMap<>();
 
     private ListenerRegistration sosListener;
     private GoogleMap googleMap;
@@ -68,9 +70,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     
     private static final double SK_PINJI_LAT = 4.565549;
     private static final double SK_PINJI_LNG = 101.081350;
-
-    private String currentUserName = "User";
-    private String userRole = "Guardian";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -132,10 +131,10 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         db.collection("users").document(user.getUid()).get()
             .addOnSuccessListener(doc -> {
                 if (doc.exists()) {
-                    currentUserName = doc.getString("name");
-                    userRole = doc.getString("role");
-                    tvWelcome.setText("Welcome, " + currentUserName);
-                    if ("Guardian".equalsIgnoreCase(userRole)) {
+                    String name = doc.getString("name");
+                    String role = doc.getString("role");
+                    tvWelcome.setText("Welcome, " + (name != null ? name : "User"));
+                    if ("Guardian".equalsIgnoreCase(role)) {
                         if (layoutStudentBoard != null) layoutStudentBoard.setVisibility(View.VISIBLE);
                         fetchLinkedStudents();
                     }
@@ -167,8 +166,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     }
 
     private void attachPredictiveListeners(String uid, StudentStatus status) {
-        List<ValueEventListener> listeners = new ArrayList<>();
-
+        // 1. Vitals
         ValueEventListener vListener = FirebaseDatabase.getInstance().getReference("users")
             .child(uid).child("vitals")
             .addValueEventListener(new ValueEventListener() {
@@ -187,8 +185,9 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                 }
                 @Override public void onCancelled(@NonNull DatabaseError error) {}
             });
-        listeners.add(vListener);
+        vitalsListeners.put(uid, vListener);
 
+        // 2. Location
         ValueEventListener lListener = FirebaseDatabase.getInstance().getReference("locations")
             .child(uid)
             .addValueEventListener(new ValueEventListener() {
@@ -208,8 +207,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                 }
                 @Override public void onCancelled(@NonNull DatabaseError error) {}
             });
-        listeners.add(lListener);
-        studentListeners.put(uid, listeners);
+        locationListeners.put(uid, lListener);
     }
 
     private void startSOSListener() {
@@ -252,9 +250,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         btnDoctor.setOnClickListener(v -> startActivity(new Intent(this, BookingActivity.class)));
         btnMonitor.setOnClickListener(v -> startActivity(new Intent(this, MonitorActivity.class)));
         btnEmotion.setOnClickListener(v -> startActivity(new Intent(this, EmotionActivity.class)));
-        btnAmbulance.setOnClickListener(v -> {
-            startActivity(new Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:999")));
-        });
+        btnAmbulance.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:999"))));
         btnLink.setOnClickListener(v -> startActivity(new Intent(this, QRCodeActivity.class)));
         btnOpenMap.setOnClickListener(v -> startActivity(new Intent(this, LocationMapActivity.class)));
         tvSeeAllLocation.setOnClickListener(v -> startActivity(new Intent(this, LocationMapActivity.class)));
@@ -270,8 +266,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
 
     private void loadTopDoctors() {
         doctorList.clear();
-        // FIXED GENDER & IMAGES BASED ON FEEDBACK
-        // ic_doctor2 = Man, ic_doctor1 = Girl, ic_doctor3 = Man
         doctorList.add(new DoctorItem("Dr. Ahmad Zaki", "Pediatric Specialist", "4.9", "0.5km", R.drawable.ic_doctor2));
         doctorList.add(new DoctorItem("Dr. Siti Noraini", "Occupational Therapist", "4.8", "1.2km", R.drawable.ic_doctor1));
         doctorList.add(new DoctorItem("Dr. Azman Hassan", "Clinical Psychologist", "4.7", "2.0km", R.drawable.ic_doctor3));
@@ -291,14 +285,20 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     @Override protected void onResume() { super.onResume(); if (ivMapPreview != null) ivMapPreview.onResume(); }
     @Override protected void onPause() { if (ivMapPreview != null) ivMapPreview.onPause(); super.onPause(); }
     @Override protected void onStop() { if (ivMapPreview != null) ivMapPreview.onStop(); super.onStop(); }
+    
     @Override protected void onDestroy() { 
         if (ivMapPreview != null) ivMapPreview.onDestroy(); 
         super.onDestroy(); 
         if (sosListener != null) sosListener.remove();
-        for (List<ValueEventListener> list : studentListeners.values()) {
-            for (ValueEventListener l : list) FirebaseDatabase.getInstance().getReference("locations").removeEventListener(l);
+        // CLEANUP ALL LISTENERS
+        for (String uid : vitalsListeners.keySet()) {
+            FirebaseDatabase.getInstance().getReference("users").child(uid).child("vitals").removeEventListener(vitalsListeners.get(uid));
+        }
+        for (String uid : locationListeners.keySet()) {
+            FirebaseDatabase.getInstance().getReference("locations").child(uid).removeEventListener(locationListeners.get(uid));
         }
     }
+
     @Override protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         Bundle bundle = new Bundle();

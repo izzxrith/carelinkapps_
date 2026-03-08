@@ -6,9 +6,10 @@
     android:background="#F5F5F5">
 
     <TextView
+        android:id="@+id/tvHistoryTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Linked Devices"
+        android:text="Predictive Safety History"
         android:textSize="20sp"
         android:textStyle="bold"
         android:padding="16dp"

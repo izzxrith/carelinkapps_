@@ -41,17 +41,24 @@ public class StudentStatusAdapter extends RecyclerView.Adapter<StudentStatusAdap
         
         String state = student.getState();
         holder.tvState.setText(state);
+        
+        // SK PINJI: Show Predictive Location Status
+        if (holder.tvLocation != null) {
+            holder.tvLocation.setText(student.getLocationStatus());
+        }
 
         if (student.isSos()) {
             holder.tvState.setText("SOS");
             holder.tvState.setBackgroundResource(R.drawable.badge_red);
-            holder.tvState.setTextColor(Color.WHITE);
+            holder.tvState.setTextColor(Color.parseColor("#D32F2F"));
         } else if ("Warning".equals(state)) {
+            holder.tvState.setText("Agitated");
             holder.tvState.setBackgroundResource(R.drawable.badge_yellow);
-            holder.tvState.setTextColor(Color.BLACK);
+            holder.tvState.setTextColor(Color.parseColor("#F57C00"));
         } else {
+            holder.tvState.setText("Normal");
             holder.tvState.setBackgroundResource(R.drawable.badge_green);
-            holder.tvState.setTextColor(Color.WHITE);
+            holder.tvState.setTextColor(Color.parseColor("#388E3C"));
         }
     }
 
@@ -61,7 +68,7 @@ public class StudentStatusAdapter extends RecyclerView.Adapter<StudentStatusAdap
     }
 
     public static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView tvName, tvBpm, tvState;
+        TextView tvName, tvBpm, tvState, tvLocation;
         LinearLayout container;
 
         public ViewHolder(@NonNull View itemView) {
@@ -69,6 +76,7 @@ public class StudentStatusAdapter extends RecyclerView.Adapter<StudentStatusAdap
             tvName = itemView.findViewById(R.id.tvStudentName);
             tvBpm = itemView.findViewById(R.id.tvBpmStatus);
             tvState = itemView.findViewById(R.id.tvStateLabel);
+            tvLocation = itemView.findViewById(R.id.tvLocationStatus);
             container = itemView.findViewById(R.id.containerStatus);
         }
     }

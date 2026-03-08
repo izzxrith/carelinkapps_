@@ -51,6 +51,10 @@ public class LocationTrackingService extends Service {
     private long lastHistoryLogTime = 0;
     private static final long HISTORY_LOG_INTERVAL = 600000; // Log to Firestore every 10 minutes (Breadcrumbs)
 
+    // SK PINJI PRECISE COORDINATES
+    private static final double SK_PINJI_LAT = 4.565549;
+    private static final double SK_PINJI_LNG = 101.081350;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -115,6 +119,15 @@ public class LocationTrackingService extends Service {
         locationData.put("timestamp", now);
         locationData.put("dateTime", dateTime);
 
+        // PREDICTIVE LOGIC: Check if outside school zone
+        float[] results = new float[1];
+        Location.distanceBetween(location.getLatitude(), location.getLongitude(), SK_PINJI_LAT, SK_PINJI_LNG, results);
+        if (results[0] > 500) {
+            locationData.put("status", "WANDERING");
+        } else {
+            locationData.put("status", "SAFE");
+        }
+
         databaseRef.child(userId).setValue(locationData);
 
         // 2. HISTORICAL DATA (Firestore - 90-day breadcrumbs)
@@ -132,8 +145,7 @@ public class LocationTrackingService extends Service {
         historyData.put("dateTime", dateTime);
 
         db.collection("users").document(userId)
-                .collection("location_history").add(historyData)
-                .addOnSuccessListener(documentReference -> Log.d(TAG, "Location breadcrumb saved to history"));
+                .collection("location_history").add(historyData);
     }
 
     private String getCurrentDateTime() {
