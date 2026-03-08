@@ -68,19 +68,17 @@ public class AvailableSlotsActivity extends AppCompatActivity implements DoctorS
     private void loadTimeSlotsFromFirestore() {
         timeSlots = new ArrayList<>();
         
-        // Fetching from Firestore collection "time_slots"
         db.collection("time_slots")
-            .whereEqualTo("date", date) // Only show slots for the selected date
+            .whereEqualTo("date", date)
             .get()
             .addOnCompleteListener(task -> {
-                if (task.isSuccessful()) {
+                if (task.isSuccessful() && !task.getResult().isEmpty()) {
                     for (QueryDocumentSnapshot document : task.getResult()) {
                         try {
                             String time = document.getString("time");
                             String duration = document.getString("duration");
                             Double price = document.getDouble("price");
                             
-                            // Get doctor details nested in the document
                             Map<String, Object> docData = (Map<String, Object>) document.get("doctor");
                             String docName = (String) docData.get("name");
                             String specialty = (String) docData.get("specialty");
@@ -94,24 +92,26 @@ public class AvailableSlotsActivity extends AppCompatActivity implements DoctorS
                             Log.e(TAG, "Error parsing slot: " + e.getMessage());
                         }
                     }
-                    
-                    // If no slots found in cloud, load local sample data so the screen isn't empty
-                    if (timeSlots.isEmpty()) {
-                        loadSampleData();
-                    }
-
                     adapter = new DoctorSlotAdapter(timeSlots, this);
                     recyclerView.setAdapter(adapter);
                 } else {
-                    Toast.makeText(this, "Error fetching slots", Toast.LENGTH_SHORT).show();
                     loadSampleData();
                 }
             });
     }
 
     private void loadSampleData() {
-        Doctor doc1 = new Doctor("Dr. Sarah", "Nephrology", R.drawable.ic_doctor_female, 4.8);
-        timeSlots.add(new TimeSlot("09:00 AM - 10:00 AM", "1 Hour", 150.00, doc1, true));
+        // SK PINJI LOCALIZATION: Malay names & relevant specialties
+        Doctor doc1 = new Doctor("Dr. Ahmad Zaki", "Pediatric Specialist", R.drawable.ic_doctor_male, 4.9);
+        Doctor doc2 = new Doctor("Dr. Siti Noraini", "Occupational Therapist", R.drawable.ic_doctor_female, 4.8);
+        Doctor doc3 = new Doctor("Dr. Azman Hassan", "Clinical Psychologist", R.drawable.ic_doctor_male, 4.7);
+        Doctor doc4 = new Doctor("Dr. Farah Wahida", "Physiotherapist", R.drawable.ic_doctor_female, 4.9);
+
+        timeSlots.add(new TimeSlot("09:00 AM - 10:00 AM", "1 Hour", 120.00, doc1, true));
+        timeSlots.add(new TimeSlot("10:30 AM - 11:30 AM", "1 Hour", 100.00, doc2, true));
+        timeSlots.add(new TimeSlot("02:00 PM - 03:00 PM", "1 Hour", 150.00, doc3, true));
+        timeSlots.add(new TimeSlot("04:00 PM - 05:00 PM", "1 Hour", 90.00, doc4, true));
+
         adapter = new DoctorSlotAdapter(timeSlots, this);
         recyclerView.setAdapter(adapter);
     }

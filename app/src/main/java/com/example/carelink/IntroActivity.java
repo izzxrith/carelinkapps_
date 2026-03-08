@@ -19,27 +19,16 @@ import com.google.firebase.firestore.FirebaseFirestore;
 public class IntroActivity extends AppCompatActivity {
 
     private FirebaseAuth mAuth;
-    private FirebaseFirestore db;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         mAuth = FirebaseAuth.getInstance();
-        db = FirebaseFirestore.getInstance();
 
-        // --- EMULATOR SETUP ---
-        try {
-            mAuth.useEmulator("10.0.2.2", 9099);
-            db.useEmulator("10.0.2.2", 8080);
-            FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
-        } catch (Exception e) {
-            // Already connected or error
-        }
+        // EMULATOR CALL REMOVED - NOW HANDLED BY CareLinkApp.java
 
         // --- SK PINJI: FORCED LOGIN FLOW ---
-        // We removed the auto-redirect to Dashboard.
-        // Now, everyone must go through the Login/Pairing process.
         if (isWatchDevice() && mAuth.getCurrentUser() == null) {
             startActivity(new Intent(this, WatchPairingActivity.class));
             finish();
@@ -57,7 +46,6 @@ public class IntroActivity extends AppCompatActivity {
 
         Button btnStart = findViewById(R.id.btnStart);
         btnStart.setOnClickListener(v -> {
-            // Goes to Onboarding -> then eventually to LoginActivity
             startActivity(new Intent(IntroActivity.this, OnboardingActivity1.class));
             finish();
         });

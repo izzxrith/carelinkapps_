@@ -79,11 +79,10 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         setupBottomNavigation();
         loadTopDoctors();
         
-        // Initialize Map safely
         try {
             setupMap(savedInstanceState);
         } catch (Exception e) {
-            Log.e(TAG, "Map initialization failed: " + e.getMessage());
+            Log.e(TAG, "Map error: " + e.getMessage());
         }
         
         startSOSListener();
@@ -119,30 +118,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         });
     }
 
-    private void setupMap(Bundle savedInstanceState) {
-        Bundle bundle = null;
-        if (savedInstanceState != null) {
-            bundle = savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY);
-        }
-        
-        if (ivMapPreview != null) {
-            ivMapPreview.onCreate(bundle);
-            ivMapPreview.getMapAsync(this);
-        }
-    }
-
-    @Override
-    public void onMapReady(@NonNull GoogleMap map) {
-        this.googleMap = map;
-        LatLng ipoh = new LatLng(4.5975, 101.1031); // Center on Ipoh for SK Pinji
-        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(ipoh, 12f));
-        googleMap.getUiSettings().setAllGesturesEnabled(false); // Static preview
-        
-        googleMap.setOnMapClickListener(latLng -> {
-            startActivity(new Intent(this, LocationMapActivity.class));
-        });
-    }
-
     private void loadUserData() {
         FirebaseUser user = mAuth.getCurrentUser();
         if (user != null) {
@@ -151,8 +126,10 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                         if (doc.exists()) {
                             currentUserName = doc.contains("name") ? doc.getString("name") : "User";
                             userRole = doc.contains("role") ? doc.getString("role") : "Guardian";
+                            
                             tvWelcome.setText("Welcome, " + currentUserName);
                             tvSubtitle.setText(userRole + " Dashboard");
+                            
                             if ("Guardian".equalsIgnoreCase(userRole)) {
                                 checkLinkedStudentsCount();
                             }
@@ -182,6 +159,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                 .whereEqualTo("status", "ACTIVE")
                 .addSnapshotListener((snapshots, e) -> {
                     if (e != null || snapshots == null) return;
+
                     for (QueryDocumentSnapshot doc : snapshots) {
                         String patientUid = doc.getString("patient_uid");
                         if (patientUid != null) {
@@ -204,6 +182,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
 
     private void showEmergencyDialog(String patient, String type, String alertId) {
         if (isFinishing()) return;
+        
         new AlertDialog.Builder(this)
                 .setTitle("🚨 STUDENT SOS")
                 .setMessage(patient + " needs help! (" + type + ")\nOpen tracking map?")
@@ -231,6 +210,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     }
 
     private void setupBottomNavigation() {
+        findViewById(R.id.navHome).setOnClickListener(v -> Toast.makeText(this, "Already on Home", Toast.LENGTH_SHORT).show());
         findViewById(R.id.navMessages).setOnClickListener(v -> startActivity(new Intent(this, MessageActivity.class)));
         findViewById(R.id.navSchedule).setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
         findViewById(R.id.navProfile).setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
@@ -271,16 +251,37 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         sos.put("timestamp", System.currentTimeMillis());
         sos.put("status", "ACTIVE");
         sos.put("patient_uid", mAuth.getUid());
+
         db.collection("emergency_alerts").add(sos);
     }
 
     private void loadTopDoctors() {
-        doctorList.add(new DoctorItem("Dr. Sarah (Ipoh Care)", "General", "4.9", "0.5km", R.drawable.ic_doctor_male));
+        // SK PINJI LOCALIZATION: Diverse local Malay names for Ipoh demo
+        doctorList.clear();
+        doctorList.add(new DoctorItem("Dr. Ahmad Zaki", "Pediatric Specialist", "4.9", "0.5km", R.drawable.ic_doctor_male));
+        doctorList.add(new DoctorItem("Dr. Siti Noraini", "Occupational Therapist", "4.8", "1.2km", R.drawable.ic_doctor_female));
+        doctorList.add(new DoctorItem("Dr. Azman Hassan", "Clinical Psychologist", "4.7", "2.0km", R.drawable.ic_doctor_male));
         doctorAdapter.notifyDataSetChanged();
     }
 
     private void onDoctorClick(DoctorItem doctor) {
         startActivity(new Intent(this, BookingActivity.class));
+    }
+
+    private void setupMap(Bundle savedInstanceState) {
+        Bundle bundle = (savedInstanceState != null) ? savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY) : null;
+        if (ivMapPreview != null) {
+            ivMapPreview.onCreate(bundle);
+            ivMapPreview.getMapAsync(this);
+        }
+    }
+
+    @Override
+    public void onMapReady(@NonNull GoogleMap map) {
+        googleMap = map;
+        LatLng ipoh = new LatLng(4.5975, 101.1031);
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(ipoh, 12f));
+        googleMap.setOnMapClickListener(latLng -> startActivity(new Intent(this, LocationMapActivity.class)));
     }
 
     @Override protected void onStart() { super.onStart(); if (ivMapPreview != null) ivMapPreview.onStart(); }
@@ -291,19 +292,16 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     @Override protected void onDestroy() { 
         if (ivMapPreview != null) ivMapPreview.onDestroy(); 
         super.onDestroy(); 
-        if (sosListener != null) sosListener.remove();
+        if (sosListener != null) {
+            sosListener.remove();
+            sosListener = null;
+        }
     }
     
     @Override public void onLowMemory() { super.onLowMemory(); if (ivMapPreview != null) ivMapPreview.onLowMemory(); }
-    
     @Override protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
-        Bundle bundle = outState.getBundle(MAP_VIEW_BUNDLE_KEY);
-        if (bundle == null) {
-            bundle = new Bundle();
-            outState.putBundle(MAP_VIEW_BUNDLE_KEY, bundle);
-        }
-        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(bundle);
+        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(outState.getBundle(MAP_VIEW_BUNDLE_KEY));
     }
 
     public static class DoctorItem {

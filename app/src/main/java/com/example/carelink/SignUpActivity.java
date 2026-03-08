@@ -53,14 +53,8 @@ public class SignUpActivity extends AppCompatActivity {
         progressDialog.setMessage("Creating your account...");
         progressDialog.setCancelable(false);
 
-        // --- EMULATOR SETUP ---
-        try {
-            mAuth.useEmulator("10.0.2.2", 9099);
-            db.useEmulator("10.0.2.2", 8080);
-            FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
-        } catch (Exception e) {
-            Log.d(TAG, "Emulator already connected or skipped");
-        }
+        // --- EMULATOR SETUP REMOVED ---
+        // Global configuration is now handled in CareLinkApp.java
 
         inputName = findViewById(R.id.inputName);
         inputEmail = findViewById(R.id.inputEmail);

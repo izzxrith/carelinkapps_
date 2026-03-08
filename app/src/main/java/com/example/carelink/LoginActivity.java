@@ -28,7 +28,6 @@ import com.google.firebase.auth.AuthCredential;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.auth.GoogleAuthProvider;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.firestore.FirebaseFirestore;
 
 public class LoginActivity extends AppCompatActivity {
@@ -51,10 +50,8 @@ public class LoginActivity extends AppCompatActivity {
         mAuth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        // --- SK PINJI FIX: FORCE PAIRING SCREEN ON WATCH ---
+        // --- WATCH DETECTION ---
         if (isWatchDevice()) {
-            Log.d(TAG, "Watch detected. Current User: " + mAuth.getCurrentUser());
-            // If already logged in, go to dashboard. Otherwise, show pairing QR.
             if (mAuth.getCurrentUser() == null) {
                 startActivity(new Intent(this, WatchPairingActivity.class));
                 finish();
@@ -73,13 +70,7 @@ public class LoginActivity extends AppCompatActivity {
         progressDialog.setMessage("Syncing...");
         progressDialog.setCancelable(false);
 
-        try {
-            mAuth.useEmulator("10.0.2.2", 9099);
-            db.useEmulator("10.0.2.2", 8080);
-            FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
-        } catch (Exception e) {
-            Log.d(TAG, "Emulator skipped");
-        }
+        // --- DUPLICATE EMULATOR CODE REMOVED (Now in CareLinkApp.java) ---
 
         initializeViews();
         setupSocialLogin();
@@ -88,13 +79,9 @@ public class LoginActivity extends AppCompatActivity {
 
     private boolean isWatchDevice() {
         Configuration config = getResources().getConfiguration();
-        // Check 1: Screen size (watches are tiny)
-        boolean isSmallScreen = (config.screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) == Configuration.SCREENLAYOUT_SIZE_SMALL;
-        // Check 2: System feature
         boolean hasWatchFeature = getPackageManager().hasSystemFeature(PackageManager.FEATURE_WATCH);
-        // Check 3: UI Mode
         boolean isWatchUi = (config.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_WATCH;
-        
+        boolean isSmallScreen = (config.screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) == Configuration.SCREENLAYOUT_SIZE_SMALL;
         return hasWatchFeature || isWatchUi || isSmallScreen;
     }
 
