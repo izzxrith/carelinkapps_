@@ -66,6 +66,9 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     private GoogleMap googleMap;
     private static final String MAP_VIEW_BUNDLE_KEY = "MapViewBundleKey";
     
+    private static final double SK_PINJI_LAT = 4.565549;
+    private static final double SK_PINJI_LNG = 101.081350;
+
     private String currentUserName = "User";
     private String userRole = "Guardian";
 
@@ -83,10 +86,13 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         setupBottomNavigation();
         loadTopDoctors();
         
-        try {
-            setupMap(savedInstanceState);
-        } catch (Exception e) {
-            Log.e(TAG, "Map error");
+        Bundle mapViewBundle = null;
+        if (savedInstanceState != null) {
+            mapViewBundle = savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY);
+        }
+        if (ivMapPreview != null) {
+            ivMapPreview.onCreate(mapViewBundle);
+            ivMapPreview.getMapAsync(this);
         }
         
         startSOSListener();
@@ -130,7 +136,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                     userRole = doc.getString("role");
                     tvWelcome.setText("Welcome, " + currentUserName);
                     if ("Guardian".equalsIgnoreCase(userRole)) {
-                        layoutStudentBoard.setVisibility(View.VISIBLE);
+                        if (layoutStudentBoard != null) layoutStudentBoard.setVisibility(View.VISIBLE);
                         fetchLinkedStudents();
                     }
                 }
@@ -163,7 +169,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     private void attachPredictiveListeners(String uid, StudentStatus status) {
         List<ValueEventListener> listeners = new ArrayList<>();
 
-        // 1. PREDICTIVE VITALS MONITOR
         ValueEventListener vListener = FirebaseDatabase.getInstance().getReference("users")
             .child(uid).child("vitals")
             .addValueEventListener(new ValueEventListener() {
@@ -173,9 +178,8 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                         Integer hr = snapshot.child("heart_rate").getValue(Integer.class);
                         if (hr != null) {
                             status.setHeartRate(hr);
-                            // PREDICTIVE LOGIC
                             if (hr > 120) status.setState("Emergency");
-                            else if (hr > 100) status.setState("Warning"); // Agitated
+                            else if (hr > 100) status.setState("Warning"); 
                             else status.setState("Normal");
                             statusAdapter.notifyDataSetChanged();
                         }
@@ -185,7 +189,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
             });
         listeners.add(vListener);
 
-        // 2. PREDICTIVE WANDERING MONITOR (GEOFENCING)
         ValueEventListener lListener = FirebaseDatabase.getInstance().getReference("locations")
             .child(uid)
             .addValueEventListener(new ValueEventListener() {
@@ -195,19 +198,10 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                         Double lat = snapshot.child("latitude").getValue(Double.class);
                         Double lng = snapshot.child("longitude").getValue(Double.class);
                         if (lat != null && lng != null) {
-                            // SK Pinji Coordinates
-                            double skPinjiLat = 4.5975;
-                            double skPinjiLng = 101.1031;
-                            
                             float[] results = new float[1];
-                            Location.distanceBetween(lat, lng, skPinjiLat, skPinjiLng, results);
-                            float distanceInMeters = results[0];
-
-                            if (distanceInMeters > 500) {
-                                status.setLocationStatus("Wandering (Outside)");
-                            } else {
-                                status.setLocationStatus("Safe (At School)");
-                            }
+                            Location.distanceBetween(lat, lng, SK_PINJI_LAT, SK_PINJI_LNG, results);
+                            if (results[0] > 500) status.setLocationStatus("Wandering");
+                            else status.setLocationStatus("Safe");
                             statusAdapter.notifyDataSetChanged();
                         }
                     }
@@ -215,7 +209,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                 @Override public void onCancelled(@NonNull DatabaseError error) {}
             });
         listeners.add(lListener);
-        
         studentListeners.put(uid, listeners);
     }
 
@@ -277,25 +270,21 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
 
     private void loadTopDoctors() {
         doctorList.clear();
-        doctorList.add(new DoctorItem("Dr. Ahmad Zaki", "Pediatric Specialist", "4.9", "0.5km", R.drawable.ic_doctor_male));
-        doctorList.add(new DoctorItem("Dr. Siti Noraini", "Occupational Therapist", "4.8", "1.2km", R.drawable.ic_doctor_female));
-        doctorList.add(new DoctorItem("Dr. Azman Hassan", "Clinical Psychologist", "4.7", "2.0km", R.drawable.ic_doctor_male));
+        // FIXED GENDER & IMAGES BASED ON FEEDBACK
+        // ic_doctor2 = Man, ic_doctor1 = Girl, ic_doctor3 = Man
+        doctorList.add(new DoctorItem("Dr. Ahmad Zaki", "Pediatric Specialist", "4.9", "0.5km", R.drawable.ic_doctor2));
+        doctorList.add(new DoctorItem("Dr. Siti Noraini", "Occupational Therapist", "4.8", "1.2km", R.drawable.ic_doctor1));
+        doctorList.add(new DoctorItem("Dr. Azman Hassan", "Clinical Psychologist", "4.7", "2.0km", R.drawable.ic_doctor3));
         doctorAdapter.notifyDataSetChanged();
     }
 
     private void onDoctorClick(DoctorItem doctor) { startActivity(new Intent(this, BookingActivity.class)); }
 
-    private void setupMap(Bundle savedInstanceState) {
-        if (ivMapPreview != null) {
-            ivMapPreview.onCreate(savedInstanceState != null ? savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY) : null);
-            ivMapPreview.getMapAsync(this);
-        }
-    }
-
     @Override
     public void onMapReady(@NonNull GoogleMap map) {
-        googleMap = map;
-        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(4.5975, 101.1031), 12f));
+        this.googleMap = map;
+        LatLng school = new LatLng(SK_PINJI_LAT, SK_PINJI_LNG);
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(school, 15f));
     }
 
     @Override protected void onStart() { super.onStart(); if (ivMapPreview != null) ivMapPreview.onStart(); }
@@ -307,12 +296,14 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         super.onDestroy(); 
         if (sosListener != null) sosListener.remove();
         for (List<ValueEventListener> list : studentListeners.values()) {
-            for (ValueEventListener l : list) FirebaseDatabase.getInstance().getReference().removeEventListener(l);
+            for (ValueEventListener l : list) FirebaseDatabase.getInstance().getReference("locations").removeEventListener(l);
         }
     }
     @Override protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
-        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(outState.getBundle(MAP_VIEW_BUNDLE_KEY));
+        Bundle bundle = new Bundle();
+        outState.putBundle(MAP_VIEW_BUNDLE_KEY, bundle);
+        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(bundle);
     }
 
     public static class DoctorItem {
