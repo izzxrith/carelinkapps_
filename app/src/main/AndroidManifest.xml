@@ -3,12 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.carelink">
 
+    <!-- REQUIRED for Wear OS recognition -->
+    <uses-feature android:name="android.hardware.type.watch" android:required="false" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.CALL_PHONE"
-        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.SEND_SMS"
@@ -18,6 +22,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <queries>
         <intent>
@@ -29,6 +34,7 @@
     </queries>
 
     <application
+        android:name=".CareLinkApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -40,6 +46,10 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+
+        <!-- Tells the system the watch app is standalone -->
+        <meta-data android:name="com.google.android.wearable.standalone" android:value="true" />
+        <uses-library android:name="com.google.android.wearable" android:required="false" />
 
         <service
             android:name=".LocationTrackingService"
@@ -74,55 +84,27 @@
             android:parentActivityName=".DashboardActivity"
             android:theme="@style/Theme.CareLink" />
 
-        <activity
-            android:name=".MonitorActivity"
-            android:exported="false" />
-        <activity
-            android:name=".MessageActivity"
-            android:exported="false" />
+        <activity android:name=".MonitorActivity" android:exported="false" />
+        <activity android:name=".MessageActivity" android:exported="false" />
         <activity
             android:name=".ChatRoomActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
-        <activity
-            android:name=".LocationMapActivity"
-            android:exported="false" />
-        <activity
-            android:name=".QRCodeActivity"
-            android:exported="false" />
-        <activity
-            android:name=".BookingActivity"
-            android:exported="true" />
-        <activity
-            android:name=".ScheduleActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ReceiptActivity"
-            android:exported="false" />
-        <activity
-            android:name=".PaymentActivity"
-            android:exported="false" />
-        <activity
-            android:name=".AvailableSlotsActivity"
-            android:exported="false" />
-        <activity
-            android:name=".MapActivity"
-            android:exported="false" />
-        <activity
-            android:name=".DashboardActivity"
-            android:exported="false" />
-        <activity
-            android:name=".WatchDashboardActivity"
-            android:exported="false" />
-        <activity
-            android:name=".OnboardingActivity3"
-            android:exported="false" />
-        <activity
-            android:name=".OnboardingActivity2"
-            android:exported="false" />
-        <activity
-            android:name=".OnboardingActivity1"
-            android:exported="false" />
+        <activity android:name=".LocationMapActivity" android:exported="false" />
+        <activity android:name=".QRCodeActivity" android:exported="false" />
+        <activity android:name=".BookingActivity" android:exported="true" />
+        <activity android:name=".ScheduleActivity" android:exported="false" />
+        <activity android:name=".ReceiptActivity" android:exported="false" />
+        <activity android:name=".PaymentActivity" android:exported="false" />
+        <activity android:name=".AvailableSlotsActivity" android:exported="false" />
+        <activity android:name=".MapActivity" android:exported="false" />
+        <activity android:name=".DashboardActivity" android:exported="false" />
+        <activity android:name=".WatchDashboardActivity" android:exported="false" />
+        <activity android:name=".WatchPairingActivity" android:exported="false" />
+        <activity android:name=".OnboardingActivity3" android:exported="false" />
+        <activity android:name=".OnboardingActivity2" android:exported="false" />
+        <activity android:name=".OnboardingActivity1" android:exported="false" />
+
         <activity
             android:name=".IntroActivity"
             android:exported="true">
@@ -131,19 +113,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <activity
             android:name=".ProfileActivity"
             android:theme="@style/Theme.CareLink.ProfileActionBar"
             android:exported="false" />
-        <activity
-            android:name=".LoginGatewayActivity"
-            android:exported="false" />
-        <activity
-            android:name=".LoginActivity"
-            android:exported="false" />
-        <activity
-            android:name=".SignUpActivity"
-            android:exported="false" />
+        <activity android:name=".LoginGatewayActivity" android:exported="false" />
+        <activity android:name=".LoginActivity" android:exported="false" />
+        <activity android:name=".SignUpActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

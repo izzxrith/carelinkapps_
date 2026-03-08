@@ -1,5 +1,6 @@
 package com.example.carelink;
 
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
@@ -31,6 +32,7 @@ public class SignUpActivity extends AppCompatActivity {
     private TextView tvLogin;
     private FirebaseAuth mAuth;
     private FirebaseFirestore db;
+    private ProgressDialog progressDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,12 +49,15 @@ public class SignUpActivity extends AppCompatActivity {
         mAuth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        // --- EMULATOR SETUP (Bypasses Spark Plan Limits) ---
+        progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("Creating your account...");
+        progressDialog.setCancelable(false);
+
+        // --- EMULATOR SETUP ---
         try {
             mAuth.useEmulator("10.0.2.2", 9099);
             db.useEmulator("10.0.2.2", 8080);
             FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
-            Log.d(TAG, "Connected to Firebase Emulators");
         } catch (Exception e) {
             Log.d(TAG, "Emulator already connected or skipped");
         }
@@ -65,9 +70,7 @@ public class SignUpActivity extends AppCompatActivity {
         btnSignUp = findViewById(R.id.btnSignUp);
         tvLogin = findViewById(R.id.tvLogin);
 
-        btnSignUp.setOnClickListener(v -> {
-            validateAndRegister();
-        });
+        btnSignUp.setOnClickListener(v -> validateAndRegister());
 
         tvLogin.setOnClickListener(v -> {
             startActivity(new Intent(SignUpActivity.this, LoginActivity.class));
@@ -85,7 +88,7 @@ public class SignUpActivity extends AppCompatActivity {
         String email = inputEmail.getText().toString().trim();
         String pass = inputPassword.getText().toString().trim();
         
-        String role = "Guardian"; // Default
+        String role = "Guardian";
         int selectedId = rgRole.getCheckedRadioButtonId();
         if (selectedId == R.id.rbStudent) {
             role = "Student";
@@ -96,11 +99,12 @@ public class SignUpActivity extends AppCompatActivity {
             return;
         }
 
-        if (!isValidEmail(email)) {
-            Toast.makeText(this, "Invalid email address! Please use @gmail.com", Toast.LENGTH_LONG).show();
+        if (!email.contains("@gmail.com")) {
+            Toast.makeText(this, "Please use a valid @gmail.com address", Toast.LENGTH_LONG).show();
             return;
         }
 
+        progressDialog.show();
         final String finalRole = role;
         mAuth.createUserWithEmailAndPassword(email, pass)
                 .addOnCompleteListener(this, task -> {
@@ -110,13 +114,10 @@ public class SignUpActivity extends AppCompatActivity {
                             saveUserDataToFirestore(user.getUid(), name, email, finalRole);
                         }
                     } else {
+                        progressDialog.dismiss();
                         Toast.makeText(this, "Registration Failed: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
-    }
-
-    private boolean isValidEmail(String email) {
-        return email.matches("^[a-zA-Z0-9._%+-]+@gmail\\.com$");
     }
 
     private void saveUserDataToFirestore(String userId, String name, String email, String role) {
@@ -130,13 +131,15 @@ public class SignUpActivity extends AppCompatActivity {
         db.collection("users").document(userId)
                 .set(userMap)
                 .addOnSuccessListener(aVoid -> {
-                    Toast.makeText(SignUpActivity.this, "Success! Please login to your local account.", Toast.LENGTH_SHORT).show();
+                    progressDialog.dismiss();
+                    Toast.makeText(SignUpActivity.this, "Success! Please login.", Toast.LENGTH_SHORT).show();
                     mAuth.signOut();
                     startActivity(new Intent(SignUpActivity.this, LoginActivity.class));
                     finish();
                 })
                 .addOnFailureListener(e -> {
-                    Toast.makeText(SignUpActivity.this, "Local Firestore Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    progressDialog.dismiss();
+                    Toast.makeText(SignUpActivity.this, "Database Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
     }
 }

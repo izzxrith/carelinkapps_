@@ -1,6 +1,9 @@
 package com.example.carelink;
 
+import android.app.ProgressDialog;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -34,6 +37,7 @@ public class LoginActivity extends AppCompatActivity {
     private Button btnLogin;
     private TextView tvForgot, tvSignUp;
     private ImageButton btnGoogle, btnFacebook;
+    private ProgressDialog progressDialog;
 
     private static final int RC_GOOGLE_SIGN_IN = 9001;
     private FirebaseAuth mAuth;
@@ -43,26 +47,55 @@ public class LoginActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this);
-        setContentView(R.layout.activity_login);
-
+        
         mAuth = FirebaseAuth.getInstance();
         db = FirebaseFirestore.getInstance();
 
-        // --- EMULATOR SETUP (Bypasses Spark Plan Limits) ---
+        // --- SK PINJI FIX: FORCE PAIRING SCREEN ON WATCH ---
+        if (isWatchDevice()) {
+            Log.d(TAG, "Watch detected. Current User: " + mAuth.getCurrentUser());
+            // If already logged in, go to dashboard. Otherwise, show pairing QR.
+            if (mAuth.getCurrentUser() == null) {
+                startActivity(new Intent(this, WatchPairingActivity.class));
+                finish();
+                return;
+            } else {
+                startActivity(new Intent(this, WatchDashboardActivity.class));
+                finish();
+                return;
+            }
+        }
+
+        EdgeToEdge.enable(this);
+        setContentView(R.layout.activity_login);
+
+        progressDialog = new ProgressDialog(this);
+        progressDialog.setMessage("Syncing...");
+        progressDialog.setCancelable(false);
+
         try {
-            // 10.0.2.2 is the special IP to reach your computer's localhost from the Android Emulator
             mAuth.useEmulator("10.0.2.2", 9099);
             db.useEmulator("10.0.2.2", 8080);
             FirebaseDatabase.getInstance().useEmulator("10.0.2.2", 9000);
-            Log.d(TAG, "Successfully connected to Firebase Emulators");
         } catch (Exception e) {
-            Log.d(TAG, "Emulators already running or connection skipped");
+            Log.d(TAG, "Emulator skipped");
         }
 
         initializeViews();
         setupSocialLogin();
         setupClickListeners();
+    }
+
+    private boolean isWatchDevice() {
+        Configuration config = getResources().getConfiguration();
+        // Check 1: Screen size (watches are tiny)
+        boolean isSmallScreen = (config.screenLayout & Configuration.SCREENLAYOUT_SIZE_MASK) == Configuration.SCREENLAYOUT_SIZE_SMALL;
+        // Check 2: System feature
+        boolean hasWatchFeature = getPackageManager().hasSystemFeature(PackageManager.FEATURE_WATCH);
+        // Check 3: UI Mode
+        boolean isWatchUi = (config.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_WATCH;
+        
+        return hasWatchFeature || isWatchUi || isSmallScreen;
     }
 
     private void initializeViews() {
@@ -89,16 +122,18 @@ public class LoginActivity extends AppCompatActivity {
             String pass = inputPassword.getText().toString().trim();
 
             if (email.isEmpty() || pass.isEmpty()) {
-                Toast.makeText(this, "Please fill in all fields", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Fields cannot be empty", Toast.LENGTH_SHORT).show();
                 return;
             }
 
+            progressDialog.show();
             mAuth.signInWithEmailAndPassword(email, pass)
                 .addOnCompleteListener(this, task -> {
                     if (task.isSuccessful()) {
                         checkUserRoleAndRedirect();
                     } else {
-                        Toast.makeText(this, "Login Failed: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
+                        progressDialog.dismiss();
+                        Toast.makeText(this, "Error: " + task.getException().getMessage(), Toast.LENGTH_LONG).show();
                     }
                 });
         });
@@ -111,12 +146,16 @@ public class LoginActivity extends AppCompatActivity {
 
     private void checkUserRoleAndRedirect() {
         FirebaseUser user = mAuth.getCurrentUser();
-        if (user == null) return;
+        if (user == null) {
+            progressDialog.dismiss();
+            return;
+        }
 
         db.collection("users").document(user.getUid()).get()
-            .addOnSuccessListener(documentSnapshot -> {
-                if (documentSnapshot.exists()) {
-                    String role = documentSnapshot.getString("role");
+            .addOnSuccessListener(doc -> {
+                progressDialog.dismiss();
+                if (doc.exists()) {
+                    String role = doc.contains("role") ? doc.getString("role") : "Guardian";
                     Intent intent;
                     if ("Student".equalsIgnoreCase(role)) {
                         intent = new Intent(LoginActivity.this, WatchDashboardActivity.class);
@@ -132,6 +171,7 @@ public class LoginActivity extends AppCompatActivity {
                 }
             })
             .addOnFailureListener(e -> {
+                progressDialog.dismiss();
                 startActivity(new Intent(LoginActivity.this, DashboardActivity.class));
                 finish();
             });
@@ -146,18 +186,17 @@ public class LoginActivity extends AppCompatActivity {
                 GoogleSignInAccount account = task.getResult(ApiException.class);
                 firebaseAuthWithGoogle(account.getIdToken());
             } catch (ApiException e) {
-                Log.e(TAG, "Google sign in failed", e);
+                Log.e(TAG, "Google failed", e);
             }
         }
     }
 
     private void firebaseAuthWithGoogle(String idToken) {
+        progressDialog.show();
         AuthCredential credential = GoogleAuthProvider.getCredential(idToken, null);
-        mAuth.signInWithCredential(credential)
-                .addOnCompleteListener(this, task -> {
-                    if (task.isSuccessful()) {
-                        checkUserRoleAndRedirect();
-                    }
-                });
+        mAuth.signInWithCredential(credential).addOnCompleteListener(this, task -> {
+            if (task.isSuccessful()) checkUserRoleAndRedirect();
+            else progressDialog.dismiss();
+        });
     }
 }

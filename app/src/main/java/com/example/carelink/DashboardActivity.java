@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -56,13 +57,13 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     private FirebaseFirestore db;
     private TopDoctorAdapter doctorAdapter;
     private List<DoctorItem> doctorList;
-    private EmergencyMonitor emergencyMonitor;
     private ListenerRegistration sosListener;
 
     private GoogleMap googleMap;
     private static final String MAP_VIEW_BUNDLE_KEY = "MapViewBundleKey";
     
     private String currentUserName = "User";
+    private String userRole = "Guardian";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,11 +76,16 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         initViews();
         loadUserData();
         setupClickListeners();
+        setupBottomNavigation();
         loadTopDoctors();
-        startEmergencyMonitoring();
-        setupMap(savedInstanceState);
         
-        // SK PINJI FEATURE: Listen for SOS from students
+        // Initialize Map safely
+        try {
+            setupMap(savedInstanceState);
+        } catch (Exception e) {
+            Log.e(TAG, "Map initialization failed: " + e.getMessage());
+        }
+        
         startSOSListener();
     }
 
@@ -101,8 +107,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         tvSeeAllLocation = findViewById(R.id.tvSeeAllLocation);
         tvSeeAllDoctors = findViewById(R.id.tvSeeAllDoctors);
 
-        setupCustomBottomNavigation();
-
         rvTopDoctors.setLayoutManager(new LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false));
         doctorList = new ArrayList<>();
         doctorAdapter = new TopDoctorAdapter(doctorList, this::onDoctorClick);
@@ -115,34 +119,96 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         });
     }
 
+    private void setupMap(Bundle savedInstanceState) {
+        Bundle bundle = null;
+        if (savedInstanceState != null) {
+            bundle = savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY);
+        }
+        
+        if (ivMapPreview != null) {
+            ivMapPreview.onCreate(bundle);
+            ivMapPreview.getMapAsync(this);
+        }
+    }
+
+    @Override
+    public void onMapReady(@NonNull GoogleMap map) {
+        this.googleMap = map;
+        LatLng ipoh = new LatLng(4.5975, 101.1031); // Center on Ipoh for SK Pinji
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(ipoh, 12f));
+        googleMap.getUiSettings().setAllGesturesEnabled(false); // Static preview
+        
+        googleMap.setOnMapClickListener(latLng -> {
+            startActivity(new Intent(this, LocationMapActivity.class));
+        });
+    }
+
+    private void loadUserData() {
+        FirebaseUser user = mAuth.getCurrentUser();
+        if (user != null) {
+            db.collection("users").document(user.getUid()).get()
+                    .addOnSuccessListener(doc -> {
+                        if (doc.exists()) {
+                            currentUserName = doc.contains("name") ? doc.getString("name") : "User";
+                            userRole = doc.contains("role") ? doc.getString("role") : "Guardian";
+                            tvWelcome.setText("Welcome, " + currentUserName);
+                            tvSubtitle.setText(userRole + " Dashboard");
+                            if ("Guardian".equalsIgnoreCase(userRole)) {
+                                checkLinkedStudentsCount();
+                            }
+                        }
+                    });
+        }
+    }
+
+    private void checkLinkedStudentsCount() {
+        db.collection("student_guardian_links")
+                .whereEqualTo("guardian_uid", mAuth.getUid())
+                .get()
+                .addOnSuccessListener(snapshots -> {
+                    if (snapshots.isEmpty()) {
+                        tvSubtitle.setText("Tap 'Link' to add a student");
+                    } else {
+                        tvSubtitle.setText("Monitoring " + snapshots.size() + " student(s)");
+                    }
+                });
+    }
+
     private void startSOSListener() {
         String guardianUid = mAuth.getUid();
         if (guardianUid == null) return;
 
-        // Listen for ANY active emergency alert
         sosListener = db.collection("emergency_alerts")
                 .whereEqualTo("status", "ACTIVE")
                 .addSnapshotListener((snapshots, e) -> {
-                    if (e != null) {
-                        Log.w(TAG, "Listen failed.", e);
-                        return;
-                    }
-
+                    if (e != null || snapshots == null) return;
                     for (QueryDocumentSnapshot doc : snapshots) {
-                        String patientName = doc.getString("patientName");
-                        String type = doc.getString("type");
-                        showEmergencyDialog(patientName, type, doc.getId());
+                        String patientUid = doc.getString("patient_uid");
+                        if (patientUid != null) {
+                            verifyLinkAndShowAlert(patientUid, doc.getString("patientName"), doc.getString("type"), doc.getId());
+                        }
+                    }
+                });
+    }
+
+    private void verifyLinkAndShowAlert(String studentUid, String name, String type, String alertId) {
+        db.collection("student_guardian_links")
+                .document(mAuth.getUid() + "_" + studentUid)
+                .get()
+                .addOnSuccessListener(doc -> {
+                    if (doc.exists()) {
+                        showEmergencyDialog(name, type, alertId);
                     }
                 });
     }
 
     private void showEmergencyDialog(String patient, String type, String alertId) {
+        if (isFinishing()) return;
         new AlertDialog.Builder(this)
-                .setTitle("🚨 EMERGENCY ALERT")
-                .setMessage(patient + " is in distress! (" + type + ")\nDo you want to track their location now?")
+                .setTitle("🚨 STUDENT SOS")
+                .setMessage(patient + " needs help! (" + type + ")\nOpen tracking map?")
                 .setPositiveButton("TRACK NOW", (dialog, which) -> {
-                    // Mark as resolved so it doesn't pop up again
-                    db.collection("emergency_alerts").document(alertId).update("status", "RESPONDED");
+                    db.collection("emergency_alerts").document(alertId).update("status", "RESOLVED");
                     startActivity(new Intent(this, LocationMapActivity.class));
                 })
                 .setNegativeButton("DISMISS", (dialog, which) -> {
@@ -152,31 +218,26 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                 .show();
     }
 
-    private void loadUserData() {
-        FirebaseUser user = mAuth.getCurrentUser();
-        if (user != null) {
-            db.collection("users").document(user.getUid()).get()
-                    .addOnSuccessListener(doc -> {
-                        if (doc.exists()) {
-                            currentUserName = doc.getString("name");
-                            tvWelcome.setText("Welcome, " + currentUserName);
-                            String role = doc.getString("role");
-                            tvSubtitle.setText(role + " Dashboard");
-                        }
-                    });
-        }
-    }
-
     private void setupClickListeners() {
+        btnDoctor.setOnClickListener(v -> startActivity(new Intent(this, BookingActivity.class)));
         btnMonitor.setOnClickListener(v -> startActivity(new Intent(this, MonitorActivity.class)));
         btnEmotion.setOnClickListener(v -> startActivity(new Intent(this, EmotionActivity.class)));
-        btnOpenMap.setOnClickListener(v -> startActivity(new Intent(this, LocationMapActivity.class)));
         btnAmbulance.setOnClickListener(v -> triggerSmartSOS());
-        btnDoctor.setOnClickListener(v -> startActivity(new Intent(this, BookingActivity.class)));
         btnLink.setOnClickListener(v -> startActivity(new Intent(this, QRCodeActivity.class)));
+        etSearch.setOnClickListener(v -> startActivity(new Intent(this, BookingActivity.class)));
+        btnOpenMap.setOnClickListener(v -> startActivity(new Intent(this, LocationMapActivity.class)));
+        tvSeeAllLocation.setOnClickListener(v -> startActivity(new Intent(this, LocationMapActivity.class)));
+        tvSeeAllDoctors.setOnClickListener(v -> startActivity(new Intent(this, BookingActivity.class)));
+    }
+
+    private void setupBottomNavigation() {
+        findViewById(R.id.navMessages).setOnClickListener(v -> startActivity(new Intent(this, MessageActivity.class)));
+        findViewById(R.id.navSchedule).setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
+        findViewById(R.id.navProfile).setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
     }
 
     private void triggerSmartSOS() {
+        Toast.makeText(this, "SOS Active", Toast.LENGTH_SHORT).show();
         Intent intent = new Intent(Intent.ACTION_DIAL);
         intent.setData(android.net.Uri.parse("tel:999"));
         startActivity(intent);
@@ -190,88 +251,59 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
                     public void onDataChange(@NonNull DataSnapshot snapshot) {
                         double lat = 0, lng = 0;
                         if (snapshot.exists()) {
-                            lat = snapshot.child("latitude").getValue(Double.class);
-                            lng = snapshot.child("longitude").getValue(Double.class);
+                            Double latVal = snapshot.child("latitude").getValue(Double.class);
+                            Double lngVal = snapshot.child("longitude").getValue(Double.class);
+                            lat = latVal != null ? latVal : 0;
+                            lng = lngVal != null ? lngVal : 0;
                         }
-                        sendSOSAlertToCloud(user.getUid(), lat, lng);
+                        sendSOSToCloud(lat, lng);
                     }
-
-                    @Override
-                    public void onCancelled(@NonNull DatabaseError error) {
-                        sendSOSAlertToCloud(user.getUid(), 0, 0);
-                    }
+                    @Override public void onCancelled(@NonNull DatabaseError error) {}
                 });
     }
 
-    private void sendSOSAlertToCloud(String uid, double lat, double lng) {
+    private void sendSOSToCloud(double lat, double lng) {
         Map<String, Object> sos = new HashMap<>();
-        sos.put("type", "CRITICAL SOS");
+        sos.put("type", "GUARDIAN SOS");
         sos.put("patientName", currentUserName);
         sos.put("latitude", lat);
         sos.put("longitude", lng);
         sos.put("timestamp", System.currentTimeMillis());
         sos.put("status", "ACTIVE");
-
-        db.collection("emergency_alerts").add(sos)
-                .addOnSuccessListener(doc -> Toast.makeText(this, "SOS Sent!", Toast.LENGTH_LONG).show())
-                .addOnFailureListener(e -> Log.e(TAG, "SOS Failed: " + e.getMessage()));
-    }
-
-    private void setupCustomBottomNavigation() {
-        findViewById(R.id.navMessages).setOnClickListener(v -> startActivity(new Intent(this, MessageActivity.class)));
-        findViewById(R.id.navSchedule).setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
-        findViewById(R.id.navProfile).setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
+        sos.put("patient_uid", mAuth.getUid());
+        db.collection("emergency_alerts").add(sos);
     }
 
     private void loadTopDoctors() {
-        doctorList.add(new DoctorItem("Dr. Sarah", "Nephrology", "4.7", "2km", R.drawable.ic_doctor_male));
-        doctorList.add(new DoctorItem("Dr. Rajesh", "Radiology", "4.9", "1.5km", R.drawable.ic_doctor_female));
+        doctorList.add(new DoctorItem("Dr. Sarah (Ipoh Care)", "General", "4.9", "0.5km", R.drawable.ic_doctor_male));
         doctorAdapter.notifyDataSetChanged();
     }
 
     private void onDoctorClick(DoctorItem doctor) {
-        Intent intent = new Intent(this, BookingActivity.class);
-        intent.putExtra("DOCTOR_NAME", doctor.name);
-        startActivity(intent);
+        startActivity(new Intent(this, BookingActivity.class));
     }
 
-    private void startEmergencyMonitoring() {
-        Intent fallService = new Intent(this, FallDetectionService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(fallService);
-        else startService(fallService);
-        emergencyMonitor = new EmergencyMonitor(this);
-        emergencyMonitor.startMonitoring();
-    }
-
-    private void setupMap(Bundle savedInstanceState) {
-        Bundle mapViewBundle = (savedInstanceState != null) ? savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY) : null;
-        ivMapPreview.onCreate(mapViewBundle);
-        ivMapPreview.getMapAsync(this);
-    }
-
-    @Override
-    public void onMapReady(@NonNull GoogleMap map) {
-        googleMap = map;
-        LatLng kl = new LatLng(3.1390, 101.6869);
-        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(kl, 12f));
-        googleMap.setOnMapClickListener(latLng -> startActivity(new Intent(this, LocationMapActivity.class)));
-    }
-
-    @Override protected void onStart() { super.onStart(); ivMapPreview.onStart(); }
-    @Override protected void onResume() { super.onResume(); ivMapPreview.onResume(); }
-    @Override protected void onPause() { ivMapPreview.onPause(); super.onPause(); }
-    @Override protected void onStop() { ivMapPreview.onStop(); super.onStop(); }
+    @Override protected void onStart() { super.onStart(); if (ivMapPreview != null) ivMapPreview.onStart(); }
+    @Override protected void onResume() { super.onResume(); if (ivMapPreview != null) ivMapPreview.onResume(); }
+    @Override protected void onPause() { if (ivMapPreview != null) ivMapPreview.onPause(); super.onPause(); }
+    @Override protected void onStop() { if (ivMapPreview != null) ivMapPreview.onStop(); super.onStop(); }
+    
     @Override protected void onDestroy() { 
-        ivMapPreview.onDestroy(); super.onDestroy(); 
-        if (emergencyMonitor != null) emergencyMonitor.stopMonitoring(); 
+        if (ivMapPreview != null) ivMapPreview.onDestroy(); 
+        super.onDestroy(); 
         if (sosListener != null) sosListener.remove();
     }
-    @Override public void onLowMemory() { super.onLowMemory(); ivMapPreview.onLowMemory(); }
+    
+    @Override public void onLowMemory() { super.onLowMemory(); if (ivMapPreview != null) ivMapPreview.onLowMemory(); }
+    
     @Override protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
         Bundle bundle = outState.getBundle(MAP_VIEW_BUNDLE_KEY);
-        if (bundle == null) outState.putBundle(MAP_VIEW_BUNDLE_KEY, new Bundle());
-        ivMapPreview.onSaveInstanceState(outState.getBundle(MAP_VIEW_BUNDLE_KEY));
+        if (bundle == null) {
+            bundle = new Bundle();
+            outState.putBundle(MAP_VIEW_BUNDLE_KEY, bundle);
+        }
+        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(bundle);
     }
 
     public static class DoctorItem {

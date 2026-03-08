@@ -50,6 +50,76 @@ public class ScanQrFragment extends Fragment {
         return view;
     }
 
+    private void startScanning() {
+        barcodeView.decodeContinuous(new BarcodeCallback() {
+            @Override
+            public void barcodeResult(BarcodeResult result) {
+                if (result.getText() != null) {
+                    processScannedCode(result.getText());
+                    pauseScanning();
+                }
+            }
+            @Override public void possibleResultPoints(java.util.List<com.google.zxing.ResultPoint> resultPoints) {}
+        });
+    }
+
+    private void processScannedCode(String qrData) {
+        if (qrData.startsWith("CARELINK_UID:")) {
+            // Existing Linking Logic
+            String studentUid = qrData.replace("CARELINK_UID:", "").trim();
+            linkStudentToGuardian(studentUid);
+        } 
+        else if (qrData.startsWith("CARELINK_PAIR:")) {
+            // NEW PAIRING LOGIC: Authorizing a Watch
+            String pairingId = qrData.replace("CARELINK_PAIR:", "").trim();
+            pairWatchToUser(pairingId);
+        }
+        else {
+            Toast.makeText(getContext(), "Invalid CareLink Code", Toast.LENGTH_SHORT).show();
+            resumeScanning();
+        }
+    }
+
+    private void pairWatchToUser(String pairingId) {
+        if (mAuth.getCurrentUser() == null) return;
+        String currentUserUid = mAuth.getCurrentUser().getUid();
+        
+        // This tells the watch: "You are now logged in as me"
+        Map<String, Object> pairingUpdate = new HashMap<>();
+        pairingUpdate.put("status", "paired");
+        pairingUpdate.put("userUid", currentUserUid);
+        pairingUpdate.put("pairedAt", FieldValue.serverTimestamp());
+
+        db.collection("watch_pairings").document(pairingId)
+                .update(pairingUpdate)
+                .addOnSuccessListener(aVoid -> {
+                    Toast.makeText(getContext(), "Watch Authorized!", Toast.LENGTH_LONG).show();
+                    resumeScanning();
+                })
+                .addOnFailureListener(e -> {
+                    Toast.makeText(getContext(), "Pairing Failed", Toast.LENGTH_SHORT).show();
+                    resumeScanning();
+                });
+    }
+
+    private void linkStudentToGuardian(String studentUid) {
+        if (mAuth.getCurrentUser() == null) return;
+        String guardianUid = mAuth.getCurrentUser().getUid();
+        Map<String, Object> linkData = new HashMap<>();
+        linkData.put("guardian_uid", guardianUid);
+        linkData.put("student_uid", studentUid);
+        linkData.put("status", "linked");
+        linkData.put("linkedAt", FieldValue.serverTimestamp());
+
+        db.collection("student_guardian_links").document(guardianUid + "_" + studentUid)
+                .set(linkData)
+                .addOnSuccessListener(aVoid -> {
+                    Toast.makeText(getContext(), "Student Linked!", Toast.LENGTH_LONG).show();
+                    db.collection("users").document(studentUid).update("guardian_id", guardianUid);
+                    resumeScanning();
+                });
+    }
+
     private boolean checkCameraPermission() {
         return ContextCompat.checkSelfPermission(requireContext(),
                 Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
@@ -60,78 +130,36 @@ public class ScanQrFragment extends Fragment {
                 new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
     }
 
-    private void startScanning() {
-        barcodeView.decodeContinuous(new BarcodeCallback() {
-            @Override
-            public void barcodeResult(BarcodeResult result) {
-                if (result.getText() != null) {
-                    processScannedCode(result.getText());
-                    pauseScanning();
-                }
-            }
-
-            @Override
-            public void possibleResultPoints(java.util.List<com.google.zxing.ResultPoint> resultPoints) {}
-        });
-    }
-
-    private void processScannedCode(String qrData) {
-        // Expected format: CARELINK_UID:[student_uid]
-        if (qrData.startsWith("CARELINK_UID:")) {
-            String studentUid = qrData.replace("CARELINK_UID:", "").trim();
-            linkStudentToGuardian(studentUid);
-        } else {
-            Toast.makeText(getContext(), "Invalid CareLink ID", Toast.LENGTH_SHORT).show();
-            resumeScanning();
-        }
-    }
-
-    private void linkStudentToGuardian(String studentUid) {
-        String guardianUid = mAuth.getCurrentUser().getUid();
-        
-        // Use a global 'links' collection to connect Students and Guardians
-        Map<String, Object> linkData = new HashMap<>();
-        linkData.put("guardian_uid", guardianUid);
-        linkData.put("student_uid", studentUid);
-        linkData.put("status", "linked");
-        linkData.put("linkedAt", FieldValue.serverTimestamp());
-
-        String linkId = guardianUid + "_" + studentUid;
-
-        db.collection("student_guardian_links").document(linkId)
-                .set(linkData)
-                .addOnSuccessListener(aVoid -> {
-                    Toast.makeText(getContext(), "Student linked to your dashboard!", Toast.LENGTH_LONG).show();
-                    // Also update the student's record to know who their guardian is
-                    db.collection("users").document(studentUid)
-                            .update("guardian_id", guardianUid);
-                    
-                    resumeScanning();
-                })
-                .addOnFailureListener(e -> {
-                    Log.e(TAG, "Link Error: " + e.getMessage());
-                    Toast.makeText(getContext(), "Linking failed. Try again.", Toast.LENGTH_SHORT).show();
-                    resumeScanning();
-                });
-    }
-
     private void pauseScanning() {
-        barcodeView.pause();
+        if (barcodeView != null) barcodeView.pause();
     }
 
     private void resumeScanning() {
-        barcodeView.resume();
+        if (barcodeView != null) barcodeView.resume();
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        if (barcodeView != null) barcodeView.resume();
+        resumeScanning();
     }
 
     @Override
     public void onPause() {
         super.onPause();
-        if (barcodeView != null) barcodeView.pause();
+        pauseScanning();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startScanning();
+            } else {
+                Toast.makeText(getContext(), "Camera permission required", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 }

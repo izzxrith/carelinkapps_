@@ -59,6 +59,7 @@ public class MonitorActivity extends AppCompatActivity {
     private FirebaseFirestore db;
 
     private List<Entry> heartRateEntries = new ArrayList<>();
+    private String currentUserName = "Student";
     
     // SPARK OPTIMIZATION:
     private long lastAlertTime = 0;
@@ -83,6 +84,7 @@ public class MonitorActivity extends AppCompatActivity {
         setupCharts();
         setupClickListeners();
         setupBottomNavigation();
+        loadUserData(); // Fetch name for alerts
         loadLiveWatchData();
 
         SimpleDateFormat sdf = new SimpleDateFormat("dd MMMM yyyy", Locale.getDefault());
@@ -112,6 +114,15 @@ public class MonitorActivity extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
+    }
+
+    private void loadUserData() {
+        db.collection("users").document(mAuth.getUid()).get()
+                .addOnSuccessListener(doc -> {
+                    if (doc.exists()) {
+                        currentUserName = doc.contains("name") ? doc.getString("name") : "Student";
+                    }
+                });
     }
 
     private void setupCharts() {
@@ -171,7 +182,6 @@ public class MonitorActivity extends AppCompatActivity {
                     Integer heartRate = snapshot.child("heart_rate").getValue(Integer.class);
                     Integer sleep = snapshot.child("sleep_quality").getValue(Integer.class);
                     
-                    // Throttle UI updates to save energy and Spark minutes
                     if (now - lastUpdateUI > UI_UPDATE_INTERVAL) {
                         if (heartRate != null) updateHeartRateUI(heartRate);
                         if (sleep != null) {
@@ -181,7 +191,6 @@ public class MonitorActivity extends AppCompatActivity {
                         lastUpdateUI = now;
                     }
                     
-                    // Critical alerts bypass the normal UI throttle but have their own cooldown
                     if (heartRate != null) {
                         checkPredictiveAlerts(heartRate);
                     }
@@ -216,7 +225,6 @@ public class MonitorActivity extends AppCompatActivity {
             tvHealthStatus.setText("Alert: " + type);
             tvHealthStatus.setTextColor(Color.RED);
             
-            // Only send one alert per minute to save Firestore writes
             if (now - lastAlertTime > ALERT_COOLDOWN) {
                 sendCaregiverAlert(type, bpm);
                 lastAlertTime = now;
@@ -231,13 +239,13 @@ public class MonitorActivity extends AppCompatActivity {
         Map<String, Object> alert = new HashMap<>();
         alert.put("type", type);
         alert.put("value", value);
+        alert.put("patientName", currentUserName);
         alert.put("timestamp", System.currentTimeMillis());
-        alert.put("status", "unread");
+        alert.put("status", "ACTIVE"); // Dashboard listens for ACTIVE
         alert.put("patient_uid", mAuth.getUid());
 
-        // Optimized Firestore write
         db.collection("emergency_alerts").add(alert)
-            .addOnSuccessListener(doc -> Log.d(TAG, "Critical Alert saved to Firestore"))
+            .addOnSuccessListener(doc -> Log.d(TAG, "Vitals Alert Sent"))
             .addOnFailureListener(e -> Log.e(TAG, "Alert failed: " + e.getMessage()));
     }
 

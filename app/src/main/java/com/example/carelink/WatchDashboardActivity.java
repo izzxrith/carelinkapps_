@@ -51,6 +51,7 @@ public class WatchDashboardActivity extends AppCompatActivity {
         db = FirebaseFirestore.getInstance();
 
         if (mAuth.getCurrentUser() == null) {
+            startActivity(new Intent(this, WatchPairingActivity.class));
             finish();
             return;
         }
@@ -60,28 +61,29 @@ public class WatchDashboardActivity extends AppCompatActivity {
         tvWatchLogout = findViewById(R.id.tvWatchLogout);
         ivWatchLink = findViewById(R.id.ivWatchLink);
 
-        loadUserData();
-        startVitalsStreaming(); // SK PINJI: Start sending data to Teacher
+        loadUserDataSync(); // Critical: Load name before allowing SOS
+        startVitalsStreaming();
 
         btnWatchSOS.setOnClickListener(v -> triggerSOS());
         ivWatchLink.setOnClickListener(v -> startActivity(new Intent(this, QRCodeActivity.class)));
+        
         tvWatchLogout.setOnClickListener(v -> {
             mAuth.signOut();
-            startActivity(new Intent(this, LoginActivity.class));
+            startActivity(new Intent(this, IntroActivity.class)); // Go back to start
             finish();
         });
     }
 
-    private void loadUserData() {
+    private void loadUserDataSync() {
         db.collection("users").document(mAuth.getUid()).get()
                 .addOnSuccessListener(doc -> {
                     if (doc.exists()) {
                         currentUserName = doc.contains("name") ? doc.getString("name") : "Student";
+                        Log.d(TAG, "Watch active for: " + currentUserName);
                     }
                 });
     }
 
-    // This method makes the Watch "Send" data to the Teacher's Dashboard
     private void startVitalsStreaming() {
         watchRef = FirebaseDatabase.getInstance().getReference("users")
                 .child(mAuth.getUid()).child("vitals");
@@ -89,17 +91,14 @@ public class WatchDashboardActivity extends AppCompatActivity {
         sensorHandler.post(new Runnable() {
             @Override
             public void run() {
-                // Simulate sensor reading (70-90 BPM)
                 int heartRate = 70 + random.nextInt(20);
                 tvWatchBpm.setText(heartRate + " BPM");
 
-                // Push to Firebase so Teacher sees it
                 Map<String, Object> vitals = new HashMap<>();
                 vitals.put("heart_rate", heartRate);
                 vitals.put("timestamp", System.currentTimeMillis());
                 watchRef.setValue(vitals);
 
-                // Send every 30 seconds (Spark Plan Optimized)
                 sensorHandler.postDelayed(this, 30000);
             }
         });
@@ -109,36 +108,41 @@ public class WatchDashboardActivity extends AppCompatActivity {
         if (isSosTriggered) return;
         isSosTriggered = true;
 
-        Toast.makeText(this, "SOS SENT TO TEACHER!", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "EMERGENCY SIGNAL SENT", Toast.LENGTH_LONG).show();
 
-        // 1. Dial Emergency (Manual Backup)
-        Intent intent = new Intent(Intent.ACTION_DIAL);
-        intent.setData(Uri.parse("tel:999"));
-        startActivity(intent);
-
-        // 2. Send Smart SOS to Teacher's Dashboard
         FirebaseDatabase.getInstance().getReference("locations").child(mAuth.getUid())
                 .addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override
                     public void onDataChange(@NonNull DataSnapshot snapshot) {
-                        double lat = snapshot.child("latitude").getValue(Double.class) != null ? snapshot.child("latitude").getValue(Double.class) : 0;
-                        double lng = snapshot.child("longitude").getValue(Double.class) != null ? snapshot.child("longitude").getValue(Double.class) : 0;
+                        double lat = 0, lng = 0;
+                        if (snapshot.exists()) {
+                            Double latVal = snapshot.child("latitude").getValue(Double.class);
+                            Double lngVal = snapshot.child("longitude").getValue(Double.class);
+                            lat = latVal != null ? latVal : 0;
+                            lng = lngVal != null ? lngVal : 0;
+                        }
                         sendSOSAlertToCloud(lat, lng);
                     }
                     @Override public void onCancelled(@NonNull DatabaseError error) {}
                 });
+
+        // Dial 999 as backup
+        Intent intent = new Intent(Intent.ACTION_DIAL);
+        intent.setData(Uri.parse("tel:999"));
+        startActivity(intent);
 
         new Handler().postDelayed(() -> isSosTriggered = false, 5000);
     }
 
     private void sendSOSAlertToCloud(double lat, double lng) {
         Map<String, Object> sos = new HashMap<>();
-        sos.put("type", "WATCH SOS");
+        sos.put("type", "CRITICAL WATCH SOS");
         sos.put("patientName", currentUserName);
         sos.put("latitude", lat);
         sos.put("longitude", lng);
         sos.put("timestamp", System.currentTimeMillis());
         sos.put("status", "ACTIVE");
+        sos.put("patient_uid", mAuth.getUid());
 
         db.collection("emergency_alerts").add(sos);
     }

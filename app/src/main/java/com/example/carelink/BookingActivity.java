@@ -24,11 +24,12 @@ public class BookingActivity extends AppCompatActivity {
     private Button btnSearch;
     private Calendar selectedDate;
 
+    // SK PINJI FIX: Updated clinics to Ipoh locations
     private final String[][] clinics = {
-            {"City Medical Center", "Jalan Universiti, Petaling Jaya", "3.1209", "101.6538"},
-            {"Sunway Specialist Centre", "Jalan Lagoon Selatan, Bandar Sunway", "3.0731", "101.6077"},
-            {"KPJ Damansara Hospital", "119 Jalan SS20/10, Damansara Utama", "3.1368", "101.6289"},
-            {"Gleneagles KL", "282 Jalan Ampang, Kuala Lumpur", "3.1608", "101.7386"}
+            {"Hospital Raja Permaisuri Bainun", "Jalan Hospital, 30450 Ipoh, Perak", "4.6039", "101.0904"},
+            {"KPJ Ipoh Specialist Hospital", "26, Jalan Tambun, 30350 Ipoh, Perak", "4.5975", "101.1031"},
+            {"Pantai Hospital Ipoh", "126, Jalan Tambun, 31400 Ipoh, Perak", "4.6056", "101.1161"},
+            {"Ipoh Medical Centre (IMC)", "Lot 1, Persiaran Greentown 1, 30450 Ipoh, Perak", "4.5994", "101.0922"}
     };
 
     @Override
@@ -65,7 +66,6 @@ public class BookingActivity extends AppCompatActivity {
         etDate.setOnClickListener(v -> showDatePicker());
 
         btnSearch.setOnClickListener(v -> {
-            Toast.makeText(this, "Button clicked!", Toast.LENGTH_SHORT).show();
             validateAndProceed();
         });
     }
@@ -157,7 +157,6 @@ public class BookingActivity extends AppCompatActivity {
         intent.putExtra("CLINIC_LNG", lng);
         intent.putExtra("DATE", date);
 
-        Toast.makeText(this, "Going to Available Slots...", Toast.LENGTH_SHORT).show();
         startActivity(intent);
     }
 }

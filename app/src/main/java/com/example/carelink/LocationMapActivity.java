@@ -6,10 +6,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
 import android.util.Log;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -20,11 +18,14 @@ import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
 
 public class LocationMapActivity extends AppCompatActivity {
 
@@ -32,19 +33,20 @@ public class LocationMapActivity extends AppCompatActivity {
     private static final int LOCATION_PERMISSION_REQUEST_CODE = 1001;
     
     private String currentUserId; 
+    private String targetTrackId; 
 
-    private ImageView btnBack, btnMore;
-    private MaterialButton btnYesterday, btnWednesday, btnThursday, btnFriday, btnTrack;
-    private LinearLayout navHome, navMessages, navSchedule, navProfile;
-    private TextView tvLastUpdated;
+    private ImageView btnBack;
+    private MaterialButton btnTrack;
+    private TextView tvLastUpdated, tvTrackingName;
 
     private DatabaseReference databaseRef;
     private ValueEventListener locationListener;
     private FirebaseAuth mAuth;
+    private FirebaseFirestore db;
 
     private double latestLat = 0.0;
     private double latestLng = 0.0;
-    private String lastUpdatedTime = "";
+    private String lastUpdatedTime = "--:--";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,10 +54,14 @@ public class LocationMapActivity extends AppCompatActivity {
         setContentView(R.layout.activity_location_map);
 
         mAuth = FirebaseAuth.getInstance();
-        if (mAuth.getCurrentUser() != null) {
-            currentUserId = mAuth.getCurrentUser().getUid();
+        db = FirebaseFirestore.getInstance();
+        
+        FirebaseUser user = mAuth.getCurrentUser();
+        if (user != null) {
+            currentUserId = user.getUid();
+            targetTrackId = currentUserId; 
         } else {
-            Toast.makeText(this, "Session expired. Please login.", Toast.LENGTH_SHORT).show();
+            // If somehow reached here without login, just go back
             finish();
             return;
         }
@@ -63,33 +69,64 @@ public class LocationMapActivity extends AppCompatActivity {
         initViews();
         setupClickListeners();
         setupBottomNavigation();
-        initFirebaseTracking();
-
+        
+        // SK PINJI FIX: Determine who to track without kicking user to Login
+        determineTrackingTarget();
         checkLocationPermission();
     }
 
     private void initViews() {
         btnBack = findViewById(R.id.btnBack);
-        btnMore = findViewById(R.id.btnMore);
-        btnYesterday = findViewById(R.id.btnYesterday);
-        btnWednesday = findViewById(R.id.btnWednesday);
-        btnThursday = findViewById(R.id.btnThursday);
-        btnFriday = findViewById(R.id.btnFriday);
         btnTrack = findViewById(R.id.btnTrack);
-
         tvLastUpdated = findViewById(R.id.tvLastUpdated);
-
-        navHome = findViewById(R.id.navHome);
-        navMessages = findViewById(R.id.navMessages);
-        navSchedule = findViewById(R.id.navSchedule);
-        navProfile = findViewById(R.id.navProfile);
+        // Using the header title for tracking status
+        tvTrackingName = findViewById(R.id.header).findViewById(android.R.id.text1 != 0 ? android.R.id.text1 : R.id.btnBack); 
+        // Fallback: we'll find the center title by ID if possible, otherwise use a Toast
     }
 
-    private void initFirebaseTracking() {
-        FirebaseDatabase database = FirebaseDatabase.getInstance();
-        // Tracking the current logged-in user
-        databaseRef = database.getReference("locations").child(currentUserId);
+    private void determineTrackingTarget() {
+        // First, check the teacher's role
+        db.collection("users").document(currentUserId).get()
+            .addOnSuccessListener(doc -> {
+                if (doc.exists()) {
+                    String role = doc.getString("role");
+                    if ("Guardian".equalsIgnoreCase(role)) {
+                        findLinkedStudent();
+                    } else {
+                        initFirebaseTracking(currentUserId);
+                    }
+                }
+            })
+            .addOnFailureListener(e -> {
+                // Fail-safe: just track yourself
+                initFirebaseTracking(currentUserId);
+            });
+    }
 
+    private void findLinkedStudent() {
+        db.collection("student_guardian_links")
+            .whereEqualTo("guardian_uid", currentUserId)
+            .limit(1)
+            .get()
+            .addOnSuccessListener(snapshots -> {
+                if (!snapshots.isEmpty()) {
+                    for (QueryDocumentSnapshot doc : snapshots) {
+                        targetTrackId = doc.getString("student_uid");
+                        initFirebaseTracking(targetTrackId);
+                    }
+                } else {
+                    Toast.makeText(this, "No linked students found", Toast.LENGTH_SHORT).show();
+                    initFirebaseTracking(currentUserId);
+                }
+            });
+    }
+
+    private void initFirebaseTracking(String uid) {
+        if (locationListener != null && databaseRef != null) {
+            databaseRef.removeEventListener(locationListener);
+        }
+
+        databaseRef = FirebaseDatabase.getInstance().getReference("locations").child(uid);
         locationListener = new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot snapshot) {
@@ -98,134 +135,64 @@ public class LocationMapActivity extends AppCompatActivity {
                         latestLat = snapshot.child("latitude").getValue(Double.class);
                         latestLng = snapshot.child("longitude").getValue(Double.class);
                         lastUpdatedTime = snapshot.child("dateTime").getValue(String.class);
-
-                        Log.d(TAG, "Location Update: " + latestLat + ", " + latestLng);
                         updateLocationUI();
                     } catch (Exception e) {
-                        Log.e(TAG, "Data Error: " + e.getMessage());
+                        Log.e(TAG, "GPS Error");
                     }
                 }
             }
-
-            @Override
-            public void onCancelled(@NonNull DatabaseError error) {
-                Toast.makeText(LocationMapActivity.this,
-                        "Tracking Error: " + error.getMessage(),
-                        Toast.LENGTH_SHORT).show();
-            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
         };
-
         databaseRef.addValueEventListener(locationListener);
     }
 
     private void updateLocationUI() {
-        if (tvLastUpdated != null && lastUpdatedTime != null) {
-            tvLastUpdated.setText("Live Location: " + lastUpdatedTime);
+        if (tvLastUpdated != null) {
+            tvLastUpdated.setText("Live Signal: " + lastUpdatedTime);
         }
     }
 
     private void setupClickListeners() {
         btnBack.setOnClickListener(v -> finish());
-
-        btnMore.setOnClickListener(v -> {
-            Toast.makeText(this, "Alert History - Coming Soon", Toast.LENGTH_SHORT).show();
-        });
-
-        btnYesterday.setOnClickListener(v -> selectDay(btnYesterday));
-        btnWednesday.setOnClickListener(v -> selectDay(btnWednesday));
-        btnThursday.setOnClickListener(v -> selectDay(btnThursday));
-        btnFriday.setOnClickListener(v -> selectDay(btnFriday));
-
         btnTrack.setOnClickListener(v -> {
-            if (latestLat != 0.0 && latestLng != 0.0) {
-                openGoogleMaps(latestLat, latestLng);
+            if (latestLat != 0.0) {
+                String uri = "http://maps.google.com/maps?q=" + latestLat + "," + latestLng;
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
             } else {
-                Toast.makeText(this, "Waiting for live signal...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Waiting for student GPS...", Toast.LENGTH_SHORT).show();
             }
         });
-    }
-
-    private void openGoogleMaps(double latitude, double longitude) {
-        Uri gmmIntentUri = Uri.parse("geo:" + latitude + "," + longitude +
-                    "?q=" + latitude + "," + longitude + "(CareLink Patient)&z=18");
-        
-        Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
-        mapIntent.setPackage("com.google.android.apps.maps");
-
-        if (mapIntent.resolveActivity(getPackageManager()) != null) {
-            startActivity(mapIntent);
-        } else {
-            // Fallback to browser
-            String url = "https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude;
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-        }
     }
 
     private void checkLocationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-            } else {
-                startLocationService();
-            }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
         } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_PERMISSION_REQUEST_CODE);
-            } else {
-                startLocationService();
-            }
+            startLocationService();
         }
     }
 
     private void startLocationService() {
-        Intent serviceIntent = new Intent(this, LocationTrackingService.class);
-        serviceIntent.putExtra("userId", currentUserId);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startLocationService();
+        // Students are the only ones sending location
+        db.collection("users").document(currentUserId).get().addOnSuccessListener(doc -> {
+            if (doc.exists() && "Student".equalsIgnoreCase(doc.getString("role"))) {
+                Intent intent = new Intent(this, LocationTrackingService.class);
+                intent.putExtra("userId", currentUserId);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent);
+                else startService(intent);
             }
-        }
-    }
-
-    private void selectDay(MaterialButton selected) {
-        resetDayButton(btnYesterday);
-        resetDayButton(btnWednesday);
-        resetDayButton(btnThursday);
-        resetDayButton(btnFriday);
-        selected.setBackgroundTintList(getColorStateList(R.color.green_primary));
-        selected.setTextColor(getColor(R.color.white));
-    }
-
-    private void resetDayButton(MaterialButton button) {
-        button.setBackgroundTintList(getColorStateList(R.color.gray_light));
-        button.setTextColor(getColor(R.color.gray));
+        });
     }
 
     private void setupBottomNavigation() {
-        navHome.setOnClickListener(v -> {
-            startActivity(new Intent(this, DashboardActivity.class));
-            finish();
-        });
-        navSchedule.setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
-        navProfile.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
+        findViewById(R.id.navHome).setOnClickListener(v -> finish());
+        findViewById(R.id.navSchedule).setOnClickListener(v -> startActivity(new Intent(this, ScheduleActivity.class)));
+        findViewById(R.id.navProfile).setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (databaseRef != null && locationListener != null) {
-            databaseRef.removeEventListener(locationListener);
-        }
+        if (databaseRef != null && locationListener != null) databaseRef.removeEventListener(locationListener);
     }
 }
