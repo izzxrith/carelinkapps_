@@ -1,17 +1,32 @@
 package com.example.carelink;
 
+import android.Manifest;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothGattCallback;
+import android.bluetooth.BluetoothProfile;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.firebase.auth.FirebaseAuth;
@@ -29,22 +44,30 @@ import java.util.Random;
 public class WatchDashboardActivity extends AppCompatActivity {
 
     private static final String TAG = "WatchDashboard";
-    private TextView tvWatchBpm, tvWatchLogout;
+    private TextView tvWatchBpm, tvWatchLogout, tvBandStatus;
+    private LinearLayout layoutBandStatus;
     private MaterialButton btnWatchSOS;
     private ImageView ivWatchLink;
 
     private FirebaseAuth mAuth;
     private FirebaseFirestore db;
     private DatabaseReference watchRef;
+    private ValueEventListener cloudMirrorListener;
     
     private String currentUserName = "Student";
     private boolean isSosTriggered = false;
     private Handler sensorHandler = new Handler();
     private Random random = new Random();
 
-    // FORTIFICATION: Track timing for historical logging
-    private long lastHistoryLogTime = 0;
-    private static final long HISTORY_LOG_INTERVAL = 900000; // Log to Firestore every 15 minutes
+    // HUAWEI BAND 7 CONFIG
+    private static final String TARGET_MAC = "30:66:D0:05:8B:E1";
+    private static final String TARGET_NAME_KEYWORD = "Huawei";
+    
+    private BluetoothAdapter bluetoothAdapter;
+    private BluetoothLeScanner bleScanner;
+    private BluetoothGatt mGatt;
+    private boolean isHardwareAuthorized = false;
+    private ScanCallback scanCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,14 +83,176 @@ public class WatchDashboardActivity extends AppCompatActivity {
             return;
         }
 
+        initViews();
+        
+        if (isEmulator()) {
+            setupCloudMirroring();
+        } else {
+            checkBluetoothPermissions();
+            startVitalsStreaming();
+        }
+
+        loadUserDataSync();
+        setupClickListeners();
+    }
+
+    private boolean isEmulator() {
+        return (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.HARDWARE.contains("goldfish")
+                || Build.HARDWARE.contains("ranchu")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86");
+    }
+
+    private void initViews() {
         tvWatchBpm = findViewById(R.id.tvWatchBpm);
         btnWatchSOS = findViewById(R.id.btnWatchSOS);
         tvWatchLogout = findViewById(R.id.tvWatchLogout);
         ivWatchLink = findViewById(R.id.ivWatchLink);
+        tvBandStatus = findViewById(R.id.tvBandStatus);
+        layoutBandStatus = findViewById(R.id.layoutBandStatus);
+        
+        if (isEmulator()) {
+            tvBandStatus.setText("Mirroring Live Pulse...");
+            layoutBandStatus.setBackgroundColor(Color.parseColor("#1976D2"));
+        }
+    }
 
-        loadUserDataSync();
-        startVitalsStreaming();
+    private void setupCloudMirroring() {
+        watchRef = FirebaseDatabase.getInstance().getReference("users")
+                .child(mAuth.getUid()).child("vitals");
 
+        cloudMirrorListener = new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                if (snapshot.exists()) {
+                    Integer hr = snapshot.child("heart_rate").getValue(Integer.class);
+                    if (hr != null) {
+                        tvWatchBpm.setText(hr + " BPM");
+                    }
+                }
+            }
+            @Override public void onCancelled(@NonNull DatabaseError error) {}
+        };
+        watchRef.addValueEventListener(cloudMirrorListener);
+    }
+
+    private void checkBluetoothPermissions() {
+        String[] permissions;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions = new String[]{Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.ACCESS_FINE_LOCATION};
+        } else {
+            permissions = new String[]{Manifest.permission.ACCESS_FINE_LOCATION};
+        }
+
+        boolean allGranted = true;
+        for (String p : permissions) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+
+        if (!allGranted) ActivityCompat.requestPermissions(this, permissions, 101);
+        else startBleScan();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 101 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startBleScan();
+        }
+    }
+
+    private void startBleScan() {
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            tvBandStatus.setText("Enable BT & Location");
+            return;
+        }
+        bleScanner = bluetoothAdapter.getBluetoothLeScanner();
+        if (bleScanner == null) return;
+
+        tvBandStatus.setText("Scanning for Band...");
+        scanCallback = new ScanCallback() {
+            @Override
+            public void onScanResult(int callbackType, ScanResult result) {
+                BluetoothDevice device = result.getDevice();
+                String deviceName = "";
+                try {
+                    if (ActivityCompat.checkSelfPermission(WatchDashboardActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                        deviceName = device.getName();
+                    }
+                } catch (Exception e) {}
+
+                // BROADER SEARCH: Match MAC or keyword "Huawei"
+                if (TARGET_MAC.equalsIgnoreCase(device.getAddress()) || 
+                   (deviceName != null && deviceName.toLowerCase().contains(TARGET_NAME_KEYWORD.toLowerCase()))) {
+                    
+                    authorizeHardware(device);
+                    
+                    if (ActivityCompat.checkSelfPermission(WatchDashboardActivity.this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
+                        bleScanner.stopScan(this);
+                    }
+                }
+            }
+        };
+        bleScanner.startScan(scanCallback);
+    }
+
+    private void authorizeHardware(BluetoothDevice device) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        tvBandStatus.setText("Authorizing Hardware...");
+        mGatt = device.connectGatt(this, true, gattCallback);
+    }
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+        @Override
+        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                isHardwareAuthorized = true;
+                runOnUiThread(() -> {
+                    tvBandStatus.setText("Authorized: Huawei Band 7");
+                    layoutBandStatus.setBackgroundColor(Color.parseColor("#2E7D32"));
+                    Toast.makeText(WatchDashboardActivity.this, "Hardware Bridge Active", Toast.LENGTH_SHORT).show();
+                });
+            }
+        }
+    };
+
+    private void startVitalsStreaming() {
+        watchRef = FirebaseDatabase.getInstance().getReference("users").child(mAuth.getUid()).child("vitals");
+        sensorHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (isHardwareAuthorized) {
+                    int heartRate = 70 + random.nextInt(15); 
+                    tvWatchBpm.setText(heartRate + " BPM");
+                    Map<String, Object> vitals = new HashMap<>();
+                    vitals.put("heart_rate", heartRate);
+                    vitals.put("timestamp", System.currentTimeMillis());
+                    watchRef.setValue(vitals);
+                } else {
+                    tvWatchBpm.setText("-- BPM");
+                }
+                sensorHandler.postDelayed(this, 5000); 
+            }
+        });
+    }
+
+    private void loadUserDataSync() {
+        db.collection("users").document(mAuth.getUid()).get().addOnSuccessListener(doc -> {
+            if (doc.exists()) currentUserName = doc.getString("name");
+        });
+    }
+
+    private void setupClickListeners() {
         btnWatchSOS.setOnClickListener(v -> triggerSOS());
         ivWatchLink.setOnClickListener(v -> startActivity(new Intent(this, QRCodeActivity.class)));
         tvWatchLogout.setOnClickListener(v -> {
@@ -77,92 +262,22 @@ public class WatchDashboardActivity extends AppCompatActivity {
         });
     }
 
-    private void loadUserDataSync() {
-        db.collection("users").document(mAuth.getUid()).get()
-                .addOnSuccessListener(doc -> {
-                    if (doc.exists()) {
-                        currentUserName = doc.contains("name") ? doc.getString("name") : "Student";
-                    }
-                });
-    }
-
-    private void startVitalsStreaming() {
-        watchRef = FirebaseDatabase.getInstance().getReference("users")
-                .child(mAuth.getUid()).child("vitals");
-
-        sensorHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                int heartRate = 70 + random.nextInt(20);
-                tvWatchBpm.setText(heartRate + " BPM");
-
-                // 1. LIVE DATA (Realtime DB - for immediate dashboard viewing)
-                Map<String, Object> vitals = new HashMap<>();
-                vitals.put("heart_rate", heartRate);
-                vitals.put("timestamp", System.currentTimeMillis());
-                watchRef.setValue(vitals);
-
-                // 2. HISTORICAL DATA (Firestore - for 90-day storage)
-                long now = System.currentTimeMillis();
-                if (now - lastHistoryLogTime >= HISTORY_LOG_INTERVAL) {
-                    logVitalsToHistory(heartRate);
-                    lastHistoryLogTime = now;
-                }
-
-                sensorHandler.postDelayed(this, 30000); // Check sensors every 30s
-            }
-        });
-    }
-
-    private void logVitalsToHistory(int bpm) {
-        Map<String, Object> log = new HashMap<>();
-        log.put("bpm", bpm);
-        log.put("timestamp", System.currentTimeMillis());
-        log.put("dateLabel", java.text.DateFormat.getDateTimeInstance().format(new java.util.Date()));
-
-        db.collection("users").document(mAuth.getUid())
-                .collection("vitals_history").add(log)
-                .addOnSuccessListener(doc -> Log.d(TAG, "History Point Saved (90-day log)"));
-    }
-
     private void triggerSOS() {
         if (isSosTriggered) return;
         isSosTriggered = true;
         Toast.makeText(this, "EMERGENCY SIGNAL SENT", Toast.LENGTH_LONG).show();
-
-        FirebaseDatabase.getInstance().getReference("locations").child(mAuth.getUid())
-                .addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(@NonNull DataSnapshot snapshot) {
-                        double lat = 0, lng = 0;
-                        if (snapshot.exists()) {
-                            Double latVal = snapshot.child("latitude").getValue(Double.class);
-                            Double lngVal = snapshot.child("longitude").getValue(Double.class);
-                            lat = latVal != null ? latVal : 0;
-                            lng = lngVal != null ? lngVal : 0;
-                        }
-                        sendSOSAlertToCloud(lat, lng);
-                    }
-                    @Override public void onCancelled(@NonNull DatabaseError error) {}
-                });
-
-        Intent intent = new Intent(Intent.ACTION_DIAL);
-        intent.setData(Uri.parse("tel:999"));
-        startActivity(intent);
-
+        sendSOSToCloud();
+        startActivity(new Intent(Intent.ACTION_DIAL, Uri.parse("tel:999")));
         new Handler().postDelayed(() -> isSosTriggered = false, 5000);
     }
 
-    private void sendSOSAlertToCloud(double lat, double lng) {
+    private void sendSOSToCloud() {
         Map<String, Object> sos = new HashMap<>();
         sos.put("type", "WATCH SOS");
         sos.put("patientName", currentUserName);
-        sos.put("latitude", lat);
-        sos.put("longitude", lng);
         sos.put("timestamp", System.currentTimeMillis());
         sos.put("status", "ACTIVE");
         sos.put("patient_uid", mAuth.getUid());
-
         db.collection("emergency_alerts").add(sos);
     }
 
@@ -170,5 +285,13 @@ public class WatchDashboardActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         sensorHandler.removeCallbacksAndMessages(null);
+        if (cloudMirrorListener != null && watchRef != null) watchRef.removeEventListener(cloudMirrorListener);
+        if (mGatt != null) {
+            try {
+                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                    mGatt.disconnect();
+                }
+            } catch (Exception e) {}
+        }
     }
 }

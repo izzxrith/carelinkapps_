@@ -3,53 +3,39 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.carelink">
 
-    <!-- REQUIRED for Wear OS recognition -->
-    <uses-feature android:name="android.hardware.type.watch" android:required="false" />
+    <!-- Bluetooth Permissions for Huawei Band 7 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.CALL_PHONE"
-        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <uses-permission android:name="android.permission.SEND_SMS"
-        tools:ignore="PermissionImpliesUnsupportedChromeOsHardware" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CAMERA" />
-
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.DIAL" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.CALL" />
-        </intent>
-    </queries>
 
     <application
         android:name=".CareLinkApp"
         android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CareLink"
-        android:networkSecurityConfig="@xml/network_security_config"
-        android:usesCleartextTraffic="true"
-        tools:targetApi="31">
+        android:usesCleartextTraffic="true">
 
-        <!-- Tells the system the watch app is standalone -->
-        <meta-data android:name="com.google.android.wearable.standalone" android:value="true" />
-        <uses-library android:name="com.google.android.wearable" android:required="false" />
+        <!-- Google Maps API Key Meta-data -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="dummy_key" />
 
         <service
             android:name=".LocationTrackingService"
@@ -60,50 +46,12 @@
         <service
             android:name=".FallDetectionService"
             android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse" />
-
-        <meta-data
-            android:name="com.google.android.gms.version"
-            android:value="@integer/google_play_services_version" />
-        <meta-data
-            android:name="com.google.android.geo.API_KEY"
-            android:value="dummy_key" />
+            android:exported="false" />
 
         <activity
-            android:name=".EmergencyAlertActivity"
+            android:name=".WatchDashboardActivity"
             android:exported="false"
-            android:showOnLockScreen="true"
-            android:showWhenLocked="true"
-            android:turnScreenOn="true"
-            android:excludeFromRecents="true"
-            android:theme="@style/Theme.CareLink" />
-
-        <activity
-            android:name=".EmotionActivity"
-            android:parentActivityName=".DashboardActivity"
-            android:theme="@style/Theme.CareLink" />
-
-        <activity android:name=".MonitorActivity" android:exported="false" />
-        <activity android:name=".MessageActivity" android:exported="false" />
-        <activity
-            android:name=".ChatRoomActivity"
-            android:exported="false"
-            android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".LocationMapActivity" android:exported="false" />
-        <activity android:name=".QRCodeActivity" android:exported="false" />
-        <activity android:name=".BookingActivity" android:exported="true" />
-        <activity android:name=".ScheduleActivity" android:exported="false" />
-        <activity android:name=".ReceiptActivity" android:exported="false" />
-        <activity android:name=".PaymentActivity" android:exported="false" />
-        <activity android:name=".AvailableSlotsActivity" android:exported="false" />
-        <activity android:name=".MapActivity" android:exported="false" />
-        <activity android:name=".DashboardActivity" android:exported="false" />
-        <activity android:name=".WatchDashboardActivity" android:exported="false" />
-        <activity android:name=".WatchPairingActivity" android:exported="false" />
-        <activity android:name=".OnboardingActivity3" android:exported="false" />
-        <activity android:name=".OnboardingActivity2" android:exported="false" />
-        <activity android:name=".OnboardingActivity1" android:exported="false" />
+            android:label="Student Monitor Hub" />
 
         <activity
             android:name=".IntroActivity"
@@ -114,27 +62,34 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".DashboardActivity" android:exported="false" />
+        <activity android:name=".LoginActivity" android:exported="false" />
+        <activity android:name=".SignUpActivity" android:exported="false" />
+
         <activity
             android:name=".ProfileActivity"
             android:theme="@style/Theme.CareLink.ProfileActionBar"
             android:exported="false" />
+
+        <activity android:name=".LocationMapActivity" android:exported="false" />
+        <activity android:name=".ChatRoomActivity" android:exported="false" />
+        <activity android:name=".MessageActivity" android:exported="false" />
+        <activity android:name=".BookingActivity" android:exported="false" />
+        <activity android:name=".AvailableSlotsActivity" android:exported="false" />
+        <activity android:name=".WatchPairingActivity" android:exported="false" />
         <activity android:name=".LoginGatewayActivity" android:exported="false" />
-        <activity android:name=".LoginActivity" android:exported="false" />
-        <activity android:name=".SignUpActivity" android:exported="false" />
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop" />
+        <activity android:name=".OnboardingActivity1" android:exported="false" />
+        <activity android:name=".OnboardingActivity2" android:exported="false" />
+        <activity android:name=".OnboardingActivity3" android:exported="false" />
+        <activity android:name=".EmotionActivity" android:exported="false" />
+        <activity android:name=".EmergencyAlertActivity" android:exported="false" />
+        <activity android:name=".QRCodeActivity" android:exported="false" />
+        <activity android:name=".ReceiptActivity" android:exported="false" />
+        <activity android:name=".PaymentActivity" android:exported="false" />
+        <activity android:name=".ScheduleActivity" android:exported="false" />
+        <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".MapActivity" android:exported="false" />
+        <activity android:name=".MonitorActivity" android:exported="false" />
 
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.provider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-        </provider>
     </application>
-
 </manifest>

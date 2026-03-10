@@ -31,7 +31,6 @@ import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
 import com.google.firebase.firestore.FirebaseFirestore;
@@ -60,7 +59,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     private StudentStatusAdapter statusAdapter;
     private List<StudentStatus> studentStatusList = new ArrayList<>();
     
-    // Safety: Group listeners for cleanup
     private Map<String, ValueEventListener> vitalsListeners = new HashMap<>();
     private Map<String, ValueEventListener> locationListeners = new HashMap<>();
 
@@ -85,13 +83,21 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         setupBottomNavigation();
         loadTopDoctors();
         
-        Bundle mapViewBundle = null;
-        if (savedInstanceState != null) {
-            mapViewBundle = savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY);
-        }
-        if (ivMapPreview != null) {
-            ivMapPreview.onCreate(mapViewBundle);
-            ivMapPreview.getMapAsync(this);
+        // SAFE MAP INITIALIZATION: Wrapped in try-catch to prevent crash with dummy API key
+        try {
+            Bundle mapViewBundle = null;
+            if (savedInstanceState != null) {
+                mapViewBundle = savedInstanceState.getBundle(MAP_VIEW_BUNDLE_KEY);
+            }
+            if (ivMapPreview != null) {
+                ivMapPreview.onCreate(mapViewBundle);
+                ivMapPreview.getMapAsync(this);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Google Maps initialization failed (usually missing API key). Hiding preview.");
+            if (ivMapPreview != null) {
+                ivMapPreview.setVisibility(View.GONE);
+            }
         }
         
         startSOSListener();
@@ -166,7 +172,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
     }
 
     private void attachPredictiveListeners(String uid, StudentStatus status) {
-        // 1. Vitals
         ValueEventListener vListener = FirebaseDatabase.getInstance().getReference("users")
             .child(uid).child("vitals")
             .addValueEventListener(new ValueEventListener() {
@@ -187,7 +192,6 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
             });
         vitalsListeners.put(uid, vListener);
 
-        // 2. Location
         ValueEventListener lListener = FirebaseDatabase.getInstance().getReference("locations")
             .child(uid)
             .addValueEventListener(new ValueEventListener() {
@@ -216,8 +220,8 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
             .addSnapshotListener((snapshots, e) -> {
                 if (e != null || snapshots == null) return;
                 for (QueryDocumentSnapshot doc : snapshots) {
-                    String studentUid = doc.getString("patient_uid");
-                    if (studentUid != null) checkLinkAndNotify(studentUid, doc);
+                    String patientUid = doc.getString("patient_uid");
+                    if (patientUid != null) checkLinkAndNotify(patientUid, doc);
                 }
             });
     }
@@ -266,6 +270,7 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
 
     private void loadTopDoctors() {
         doctorList.clear();
+        // FIXED GENDER: ic_doctor2 = Man (Ahmad), ic_doctor1 = Girl (Siti)
         doctorList.add(new DoctorItem("Dr. Ahmad Zaki", "Pediatric Specialist", "4.9", "0.5km", R.drawable.ic_doctor2));
         doctorList.add(new DoctorItem("Dr. Siti Noraini", "Occupational Therapist", "4.8", "1.2km", R.drawable.ic_doctor1));
         doctorList.add(new DoctorItem("Dr. Azman Hassan", "Clinical Psychologist", "4.7", "2.0km", R.drawable.ic_doctor3));
@@ -281,16 +286,15 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
         googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(school, 15f));
     }
 
-    @Override protected void onStart() { super.onStart(); if (ivMapPreview != null) ivMapPreview.onStart(); }
-    @Override protected void onResume() { super.onResume(); if (ivMapPreview != null) ivMapPreview.onResume(); }
-    @Override protected void onPause() { if (ivMapPreview != null) ivMapPreview.onPause(); super.onPause(); }
-    @Override protected void onStop() { if (ivMapPreview != null) ivMapPreview.onStop(); super.onStop(); }
+    @Override protected void onStart() { super.onStart(); try { if (ivMapPreview != null) ivMapPreview.onStart(); } catch(Exception e){} }
+    @Override protected void onResume() { super.onResume(); try { if (ivMapPreview != null) ivMapPreview.onResume(); } catch(Exception e){} }
+    @Override protected void onPause() { try { if (ivMapPreview != null) ivMapPreview.onPause(); } catch(Exception e){} super.onPause(); }
+    @Override protected void onStop() { try { if (ivMapPreview != null) ivMapPreview.onStop(); } catch(Exception e){} super.onStop(); }
     
     @Override protected void onDestroy() { 
-        if (ivMapPreview != null) ivMapPreview.onDestroy(); 
+        try { if (ivMapPreview != null) ivMapPreview.onDestroy(); } catch(Exception e){}
         super.onDestroy(); 
         if (sosListener != null) sosListener.remove();
-        // CLEANUP ALL LISTENERS
         for (String uid : vitalsListeners.keySet()) {
             FirebaseDatabase.getInstance().getReference("users").child(uid).child("vitals").removeEventListener(vitalsListeners.get(uid));
         }
@@ -298,12 +302,14 @@ public class DashboardActivity extends AppCompatActivity implements OnMapReadyCa
             FirebaseDatabase.getInstance().getReference("locations").child(uid).removeEventListener(locationListeners.get(uid));
         }
     }
-
+    
     @Override protected void onSaveInstanceState(@NonNull Bundle outState) {
         super.onSaveInstanceState(outState);
-        Bundle bundle = new Bundle();
-        outState.putBundle(MAP_VIEW_BUNDLE_KEY, bundle);
-        if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(bundle);
+        try {
+            Bundle bundle = new Bundle();
+            outState.putBundle(MAP_VIEW_BUNDLE_KEY, bundle);
+            if (ivMapPreview != null) ivMapPreview.onSaveInstanceState(bundle);
+        } catch (Exception e){}
     }
 
     public static class DoctorItem {
